@@ -34,11 +34,14 @@ Recompensas y ajustes: config.yml. Datos: arenas.yml y stats.yml.
   title, partículas y fuegos artificiales a su alrededor; luego la arena queda libre para otra partida.
 
 ## Modo debug (probar en solitario)
-`/cw debug [arena] [bots]` inicia una partida de prueba al instante, sin cuenta atrás, con bots
-(por defecto 2, configurable en `debug.default-bots`). No guarda estadísticas ni da premios.
+`/cw debug [arena] [bots o nombres]` inicia una partida de prueba al instante, sin cuenta atrás, con bots
+(por defecto 2, configurable en `debug.default-bots`). Ejemplos: `/cw debug mapa1 3` o `/cw debug mapa1 Pepe,Luis`.
+Los bots son visibles (modelo de jugador con armadura del color de su equipo y su nombre encima). No guarda estadísticas ni da premios.
 Los bots salen, dejan estela, cierran bucles y reaparecen al morir, así puedes probar muertes y capturas.
 
 Dentro de la partida de prueba:
+- `/cw debug addbot [nombre] [equipo]` añade un bot con nombre (equipo solo en modo team)
+- `/cw debug addbots [n]` añade varios bots; `/cw debug removebot [nombre]` quita uno
 - `/cw debug win` completa el mapa (prueba victoria, title y fuegos artificiales)
 - `/cw debug fill [%]` rellena el mapa hasta ese porcentaje
 - `/cw debug die` te mata (prueba espectador y salida)

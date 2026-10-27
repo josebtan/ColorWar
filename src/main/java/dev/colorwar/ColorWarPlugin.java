@@ -22,6 +22,7 @@ public class ColorWarPlugin extends JavaPlugin {
         selections = new SelectionManager();
         arenas.load();
         stats.load();
+        BotEntities.cleanup();
 
         PluginCommand cmd = getCommand("colorwar");
         if (cmd != null) {

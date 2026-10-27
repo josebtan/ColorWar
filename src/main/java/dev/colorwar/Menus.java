@@ -280,7 +280,7 @@ public final class Menus {
             set(22, icon(Material.REDSTONE_TORCH, "<red>Probar en solitario (debug)",
                     "<gray>Partida de prueba con bots,", "<gray>sin estadísticas ni premios."), e -> {
                 p.closeInventory();
-                String err = plugin.games().joinDebug(p, a, plugin.getConfig().getInt("debug.default-bots", 2));
+                String err = plugin.games().joinDebug(p, a, plugin.getConfig().getInt("debug.default-bots", 2), null);
                 if (err != null) Msg.send(p, "<red>" + err);
             });
             set(25, icon(Material.BARRIER, "<dark_red><bold>Eliminar arena", "<gray>Shift + click para confirmar"), e -> {

@@ -314,6 +314,7 @@ public class Game {
             gp.homeZ = st[1];
             if (gp.bot) {
                 initBot(gp);
+                spawnBotEntity(gp);
                 continue;
             }
             p.teleport(cellLocation(gp.lastCell, yawToCenter(st[0], st[1])));
@@ -552,6 +553,10 @@ public class Game {
         }
 
         if (v.bot) {   // los bots reaparecen para seguir probando
+            if (v.entity != null && v.entity.isValid()) {
+                world.spawnParticle(Particle.CLOUD, v.entity.getLocation().add(0, 1, 0), 25, 0.3, 0.5, 0.3, 0.03);
+            }
+            removeBotEntity(v);
             if (arena.mode == Arena.PlayMode.SOLO) clearSide(v.side);
             Bukkit.getScheduler().runTaskLater(plugin, () -> botRespawn(v), 60L);
             return;
@@ -636,12 +641,110 @@ public class Game {
 
     // ------------------------------------------------------------ debug
 
-    public void addBots(int n) {
-        for (int i = 1; i <= n && players.size() < maxPlayers(); i++) {
-            GamePlayer b = new GamePlayer("Bot " + i);
-            b.alive = true;
-            players.put(b.id, b);
+    /** Antes de empezar: añade n bots ("Bot 1", "Bot 2"...) o uno por cada nombre dado. */
+    public void addBots(int n, List<String> names) {
+        if (names != null && !names.isEmpty()) {
+            for (String nm : names) {
+                if (players.size() >= maxPlayers()) break;
+                addPreBot(nm);
+            }
+            return;
         }
+        for (int i = 0; i < n && players.size() < maxPlayers(); i++) addPreBot(nextBotName());
+    }
+
+    private void addPreBot(String name) {
+        for (GamePlayer o : players.values()) if (o.name.equalsIgnoreCase(name)) return;
+        GamePlayer b = new GamePlayer(name);
+        b.alive = true;
+        players.put(b.id, b);
+    }
+
+    private String nextBotName() {
+        for (int i = 1; ; i++) {
+            String nm = "Bot " + i;
+            boolean used = false;
+            for (GamePlayer o : players.values()) if (o.name.equalsIgnoreCase(nm)) used = true;
+            if (!used) return nm;
+        }
+    }
+
+    public List<String> botNames() {
+        List<String> out = new ArrayList<>();
+        for (GamePlayer o : players.values()) if (o.bot) out.add(o.name);
+        return out;
+    }
+
+    /** Añade un bot con la partida en curso. teamNum: equipo 1..N (0 = automático, solo en modo equipos). */
+    public String debugAddBot(String name, int teamNum) {
+        if (!debug) return "Esto solo funciona en una partida debug.";
+        if (state != State.RUNNING) return "La partida no está en curso.";
+        if (name == null || name.isBlank()) name = nextBotName();
+        for (GamePlayer o : players.values()) {
+            if (o.name.equalsIgnoreCase(name)) return "Ya hay un jugador llamado " + name + ".";
+        }
+        boolean team = arena.mode == Arena.PlayMode.TEAM;
+        int side;
+        if (team) {
+            if (teamNum >= 1 && teamNum <= sideCount) {
+                side = teamNum - 1;
+            } else {
+                int[] members = new int[sideCount];
+                for (GamePlayer o : players.values()) {
+                    if (o.side >= 0 && !o.left && !o.eliminated) members[o.side]++;
+                }
+                side = 0;
+                for (int i = 1; i < sideCount; i++) if (members[i] < members[side]) side = i;
+            }
+        } else {
+            if (sideCount >= Colors.PALETTE.size()) {
+                return "No caben más jugadores (máximo " + Colors.PALETTE.size() + " colores).";
+            }
+            side = sideCount++;
+            sideColor = Arrays.copyOf(sideColor, sideCount);
+            sideName = Arrays.copyOf(sideName, sideCount);
+            sideOut = Arrays.copyOf(sideOut, sideCount);
+            sideOutAt = Arrays.copyOf(sideOutAt, sideCount);
+            sideColor[side] = Colors.PALETTE.get(side);
+            sideName[side] = name;
+        }
+        GamePlayer b = new GamePlayer(name);
+        b.side = side;
+        b.alive = true;
+        b.slot = bySlot.length;
+        bySlot = Arrays.copyOf(bySlot, bySlot.length + 1);
+        bySlot[b.slot] = b;
+        players.put(b.id, b);
+        sideOut[side] = false;
+        int[] cell = team ? randomOwnedCell(side) : null;
+        if (cell == null) {
+            cell = chooseStarts(1).get(0);
+            claimSquare(side, cell[0], cell[1], plugin.getConfig().getInt("start-radius", 2));
+        }
+        b.lastCell = cell[0] * d + cell[1];
+        b.homeX = cell[0];
+        b.homeZ = cell[1];
+        initBot(b);
+        spawnBotEntity(b);
+        broadcast("<white><n> <gray>(bot) se unió a la partida.", Msg.p("n", name));
+        return null;
+    }
+
+    public String debugRemoveBot(String name) {
+        for (GamePlayer o : new ArrayList<>(players.values())) {
+            if (o.bot && o.name.equalsIgnoreCase(name)) {
+                o.left = true;
+                o.alive = false;
+                clearTrail(o);
+                removeBotEntity(o);
+                markOut(o);
+                if (arena.mode == Arena.PlayMode.SOLO && o.side >= 0) clearSide(o.side);
+                players.remove(o.id);
+                broadcast("<white><n> <gray>(bot) fue retirado.", Msg.p("n", o.name));
+                return null;
+            }
+        }
+        return "No hay ningún bot llamado " + name + ".";
     }
 
     private void initBot(GamePlayer b) {
@@ -661,6 +764,26 @@ public class Game {
         b.homeX = cell[0];
         b.homeZ = cell[1];
         initBot(b);
+        removeBotEntity(b);
+        spawnBotEntity(b);
+    }
+
+    private void spawnBotEntity(GamePlayer b) {
+        if (b.lastCell < 0 || b.side < 0) return;
+        b.entity = BotEntities.spawn(cellLocation(b.lastCell, 0f), b.name, sideColor[b.side]);
+    }
+
+    private void removeBotEntity(GamePlayer b) {
+        if (b.entity != null) {
+            b.entity.remove();
+            b.entity = null;
+        }
+    }
+
+    private void removeBotEntities() {
+        for (GamePlayer gp : players.values()) {
+            if (gp.bot) removeBotEntity(gp);
+        }
     }
 
     private void botTick() {
@@ -719,6 +842,10 @@ public class Game {
         b.dirZ = dz;
         int nx = cx + dx, nz = cz + dz;
         processStep(b, nx, nz, nx * d + nz);
+        if (b.alive && b.entity != null) {
+            float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+            b.entity.teleport(cellLocation(nx * d + nz, yaw));
+        }
         if (wasReturning && b.alive && b.trailCells.isEmpty() && owner[nx][nz] == b.side + 1) {
             b.returning = false;
             b.limit = 6 + rnd.nextInt(14);
@@ -973,6 +1100,7 @@ public class Game {
 
     private void finish() {
         closing = true;
+        removeBotEntities();
         if (celebrationTask != null) {
             celebrationTask.cancel();
             celebrationTask = null;
@@ -989,6 +1117,7 @@ public class Game {
     }
 
     private void cancelTasks() {
+        removeBotEntities();
         for (BukkitTask t : new BukkitTask[]{countdownTask, renderTask, clockTask, finishTask, celebrationTask, botTask}) {
             if (t != null) t.cancel();
         }

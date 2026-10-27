@@ -19,6 +19,7 @@ public class GamePlayer {
     // Solo para bots del modo debug
     public boolean bot;
     public boolean returning;
+    public org.bukkit.entity.Entity entity;   // cuerpo visible del bot
     public int dirX, dirZ, limit, homeX, homeZ;
     public int side = -1;
     public int slot = 0;
