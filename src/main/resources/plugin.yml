@@ -1,0 +1,17 @@
+name: ColorWar
+version: 1.0.0
+main: dev.colorwar.ColorWarPlugin
+api-version: '1.21'
+description: Minijuego de conquista de territorio con bloques de concreto
+commands:
+  colorwar:
+    description: Comando principal de ColorWar
+    aliases: [cw, colorwars]
+    usage: /<command> [menu|join|leave|list|top|stats]
+permissions:
+  colorwar.play:
+    description: Jugar partidas
+    default: true
+  colorwar.admin:
+    description: Administrar arenas
+    default: op
