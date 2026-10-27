@@ -15,6 +15,11 @@ import java.util.UUID;
 public class GamePlayer {
     public final UUID id;
     public final String name;
+
+    // Solo para bots del modo debug
+    public boolean bot;
+    public boolean returning;
+    public int dirX, dirZ, limit, homeX, homeZ;
     public int side = -1;
     public int slot = 0;
     public boolean alive = false, eliminated = false, left = false;
@@ -38,7 +43,15 @@ public class GamePlayer {
         this.name = p.getName();
     }
 
+    /** Constructor de bot (jugador falso para probar en solitario). */
+    public GamePlayer(String botName) {
+        this.id = UUID.randomUUID();
+        this.name = botName;
+        this.bot = true;
+    }
+
     public Player player() {
+        if (bot) return null;
         return Bukkit.getPlayer(id);
     }
 }

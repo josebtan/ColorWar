@@ -70,6 +70,9 @@ public class Game {
     private GamePlayer[] bySlot;
     private BossBar bar;
     private final Random rnd = new Random();
+    private static final int[][] DIRS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+    private boolean debug;
+    private BukkitTask botTask;
 
     public Game(ColorWarPlugin plugin, Arena arena) {
         this.plugin = plugin;
@@ -89,6 +92,14 @@ public class Game {
     public int playerCount() { return players.size(); }
     public int maxPlayers() { return Math.min(arena.maxPlayers, Colors.PALETTE.size()); }
     public boolean has(UUID id) { return players.containsKey(id); }
+    public boolean isDebug() { return debug; }
+    public void setDebug(boolean b) { debug = b; }
+
+    private int humanCount() {
+        int n = 0;
+        for (GamePlayer gp : players.values()) if (!gp.bot) n++;
+        return n;
+    }
 
     private Location waitingLocation() {
         if (arena.lobby != null && arena.lobby.getWorld() != null) return arena.lobby;
@@ -141,6 +152,7 @@ public class Game {
 
         broadcast("<white><n> <gray>se unió <dark_gray>(<white>" + players.size() + "<gray>/<white>" + maxPlayers() + "<dark_gray>)",
                 Msg.p("n", p.getName()));
+        if (debug) return;
         if (state == State.WAITING && players.size() >= arena.minPlayers) {
             startCountdown();
         } else if (state == State.COUNTDOWN && players.size() >= maxPlayers() && countdown > 5) {
@@ -175,7 +187,7 @@ public class Game {
             state = State.WAITING;
             broadcast("<red>Cuenta atrás cancelada: faltan jugadores.");
         }
-        if (players.isEmpty() && !closing) {
+        if (humanCount() == 0 && !closing) {
             stopNow();
             return;
         }
@@ -295,9 +307,15 @@ public class Game {
 
         for (GamePlayer gp : list) {
             Player p = gp.player();
-            if (p == null) continue;
+            if (p == null && !gp.bot) continue;
             int[] st = starts.get(gp.side);
             gp.lastCell = st[0] * d + st[1];
+            gp.homeX = st[0];
+            gp.homeZ = st[1];
+            if (gp.bot) {
+                initBot(gp);
+                continue;
+            }
             p.teleport(cellLocation(gp.lastCell, yawToCenter(st[0], st[1])));
             p.setGameMode(GameMode.ADVENTURE);
             if (speed > 0) {
@@ -317,6 +335,10 @@ public class Game {
 
         renderTask = Bukkit.getScheduler().runTaskTimer(plugin, this::flush, 1L, 1L);
         clockTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tickSecond, 20L, 20L);
+        if (debug) {
+            long delay = Math.max(1, plugin.getConfig().getInt("debug.bot-delay-ticks", 3));
+            botTask = Bukkit.getScheduler().runTaskTimer(plugin, this::botTick, 20L, delay);
+        }
     }
 
     private List<int[]> chooseStarts(int n) {
@@ -522,13 +544,18 @@ public class Game {
             Player kp = killer.player();
             if (kp != null) {
                 kp.playSound(kp.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1.5f);
-                plugin.rewards().giveKill(kp);
+                if (!debug) plugin.rewards().giveKill(kp);
             }
             broadcast("<white><k> <gray>eliminó a <white><v>", Msg.p("k", killer.name), Msg.p("v", v.name));
         } else {
             broadcast("<white><v> <gray>chocó con su propia estela.", Msg.p("v", v.name));
         }
 
+        if (v.bot) {   // los bots reaparecen para seguir probando
+            if (arena.mode == Arena.PlayMode.SOLO) clearSide(v.side);
+            Bukkit.getScheduler().runTaskLater(plugin, () -> botRespawn(v), 60L);
+            return;
+        }
         boolean respawn = arena.mode == Arena.PlayMode.TEAM && plugin.getConfig().getBoolean("team-respawn", false);
         if (respawn) {
             int secs = plugin.getConfig().getInt("team-respawn-seconds", 5);
@@ -599,12 +626,159 @@ public class Game {
     }
 
     private void checkEnd() {
-        if (state != State.RUNNING || sideCount < 2) return;
+        if (debug || state != State.RUNNING || sideCount < 2) return;
         Set<Integer> active = new HashSet<>();
         for (GamePlayer gp : players.values()) {
             if (!gp.left && !gp.eliminated) active.add(gp.side);
         }
         if (active.size() <= 1) end();
+    }
+
+    // ------------------------------------------------------------ debug
+
+    public void addBots(int n) {
+        for (int i = 1; i <= n && players.size() < maxPlayers(); i++) {
+            GamePlayer b = new GamePlayer("Bot " + i);
+            b.alive = true;
+            players.put(b.id, b);
+        }
+    }
+
+    private void initBot(GamePlayer b) {
+        int[] dr = DIRS[rnd.nextInt(DIRS.length)];
+        b.dirX = dr[0];
+        b.dirZ = dr[1];
+        b.limit = 6 + rnd.nextInt(14);
+        b.returning = false;
+    }
+
+    private void botRespawn(GamePlayer b) {
+        if (state != State.RUNNING || !players.containsKey(b.id)) return;
+        int[] cell = chooseStarts(1).get(0);
+        claimSquare(b.side, cell[0], cell[1], 1);
+        b.alive = true;
+        b.lastCell = cell[0] * d + cell[1];
+        b.homeX = cell[0];
+        b.homeZ = cell[1];
+        initBot(b);
+    }
+
+    private void botTick() {
+        if (state != State.RUNNING) return;
+        for (GamePlayer b : new ArrayList<>(players.values())) {
+            if (b.bot && b.alive && !b.eliminated) botStep(b);
+        }
+    }
+
+    private boolean botBlocked(GamePlayer b, int x, int z) {
+        return x < 0 || z < 0 || x >= w || z >= d || trail[x][z] == b.slot;
+    }
+
+    private int[] botRandomDir(GamePlayer b, int cx, int cz) {
+        List<int[]> ok = new ArrayList<>(), any = new ArrayList<>();
+        for (int[] dr : DIRS) {
+            if (botBlocked(b, cx + dr[0], cz + dr[1])) continue;
+            any.add(dr);
+            if (!(dr[0] == -b.dirX && dr[1] == -b.dirZ)) ok.add(dr);
+        }
+        List<int[]> pool = ok.isEmpty() ? any : ok;
+        return pool.isEmpty() ? null : pool.get(rnd.nextInt(pool.size()));
+    }
+
+    /** IA simple: sale en línea recta con giros al azar y vuelve a casa al alcanzar su límite de estela. */
+    private void botStep(GamePlayer b) {
+        int cx = b.lastCell / d, cz = b.lastCell % d;
+        if (!b.returning && b.trailCells.size() >= b.limit) b.returning = true;
+        boolean wasReturning = b.returning;
+        int dx = b.dirX, dz = b.dirZ;
+        if (b.returning) {
+            int ex = b.homeX - cx, ez = b.homeZ - cz;
+            int sx = Integer.signum(ex), sz = Integer.signum(ez);
+            boolean preferX = Math.abs(ex) >= Math.abs(ez);
+            int[] first = preferX ? new int[]{sx, 0} : new int[]{0, sz};
+            int[] second = preferX ? new int[]{0, sz} : new int[]{sx, 0};
+            if ((first[0] != 0 || first[1] != 0) && !botBlocked(b, cx + first[0], cz + first[1])) {
+                dx = first[0];
+                dz = first[1];
+            } else if ((second[0] != 0 || second[1] != 0) && !botBlocked(b, cx + second[0], cz + second[1])) {
+                dx = second[0];
+                dz = second[1];
+            } else {
+                int[] r = botRandomDir(b, cx, cz);
+                if (r == null) return;
+                dx = r[0];
+                dz = r[1];
+            }
+        } else if ((dx == 0 && dz == 0) || rnd.nextInt(100) < 18 || botBlocked(b, cx + dx, cz + dz)) {
+            int[] r = botRandomDir(b, cx, cz);
+            if (r == null) return;
+            dx = r[0];
+            dz = r[1];
+        }
+        b.dirX = dx;
+        b.dirZ = dz;
+        int nx = cx + dx, nz = cz + dz;
+        processStep(b, nx, nz, nx * d + nz);
+        if (wasReturning && b.alive && b.trailCells.isEmpty() && owner[nx][nz] == b.side + 1) {
+            b.returning = false;
+            b.limit = 6 + rnd.nextInt(14);
+            int[] r = botRandomDir(b, nx, nz);
+            if (r != null) {
+                b.dirX = r[0];
+                b.dirZ = r[1];
+            }
+        }
+    }
+
+    /** Debug: rellena el mapa del jugador hasta el porcentaje indicado (100 = ganar). */
+    public boolean debugFill(Player p, double pct) {
+        GamePlayer gp = players.get(p.getUniqueId());
+        if (state != State.RUNNING || gp == null) return false;
+        int id = gp.side + 1;
+        int target = (int) Math.ceil(w * d * Math.max(0, Math.min(100, pct)) / 100.0);
+        int have = 0;
+        for (int[] col : owner) for (int v : col) if (v == id) have++;
+        outer:
+        for (int gx = 0; gx < w; gx++) {
+            for (int gz = 0; gz < d; gz++) {
+                if (have >= target) break outer;
+                if (owner[gx][gz] != id) {
+                    owner[gx][gz] = id;
+                    dirty.add(gx * d + gz);
+                    have++;
+                }
+            }
+        }
+        checkFullMap(counts());
+        return true;
+    }
+
+    public boolean debugKill(Player p) {
+        GamePlayer gp = players.get(p.getUniqueId());
+        if (state != State.RUNNING || gp == null) return false;
+        kill(gp, null);
+        return true;
+    }
+
+    public void debugSetTime(int seconds) {
+        if (state == State.RUNNING) timeLeft = Math.max(1, seconds);
+    }
+
+    public List<String> debugInfo(Player p) {
+        List<String> out = new ArrayList<>();
+        GamePlayer gp = players.get(p.getUniqueId());
+        out.add("<yellow>Estado: <white>" + state + " <gray>| tiempo: <white>" + fmtTime(Math.max(0, timeLeft))
+                + " <gray>| modo: <white>" + arena.mode + " <gray>| mapa: <white>" + w + "x" + d);
+        if (state != State.RUNNING || gp == null || gp.side < 0) return out;
+        int[] counts = counts();
+        out.add("<yellow>Tú: <white>" + pct(counts[gp.side], w * d) + " <gray>| estela: <white>" + gp.trailCells.size()
+                + " <gray>| kills: <white>" + gp.kills + " <gray>| muertes: <white>" + gp.deaths);
+        for (GamePlayer o : players.values()) {
+            if (!o.bot) continue;
+            out.add("<gray> - " + o.name + ": <white>" + pct(counts[o.side], w * d) + " <gray>estela " + o.trailCells.size()
+                    + (o.alive ? "" : " <red>(muerto)"));
+        }
+        return out;
     }
 
     // ------------------------------------------------------ render y reloj
@@ -651,7 +825,7 @@ public class Game {
         }
         if (checkFullMap(counts)) return;
         Integer[] order = ranking(counts);
-        bar.name(Msg.parse("<gold>ColorWar <gray>| <white>" + fmtTime(Math.max(0, timeLeft))));
+        bar.name(Msg.parse("<gold>ColorWar" + (debug ? " <red>[DEBUG]" : "") + " <gray>| <white>" + fmtTime(Math.max(0, timeLeft))));
         bar.progress(Math.max(0f, Math.min(1f, timeLeft / (float) arena.duration)));
         for (GamePlayer gp : players.values()) updateBoard(gp, counts, order);
         if (timeLeft <= 0) end();
@@ -663,6 +837,7 @@ public class Game {
         for (String l : gp.lines) gp.board.resetScores(l);
         gp.lines.clear();
         List<String> lines = new ArrayList<>();
+        if (debug) lines.add("§c§lDEBUG");
         lines.add("§7Tiempo: §f" + fmtTime(Math.max(0, timeLeft)));
         lines.add("§7Eliminaciones: §f" + gp.kills);
         lines.add("§7Tu mapa: §f" + pct(counts[gp.side], total));
@@ -744,16 +919,17 @@ public class Game {
         if (gp.side < 0) return;
         int place = rank[gp.side];
         boolean win = place == 1;
-        StatsManager.PlayerStats st = plugin.stats().get(gp.id, gp.name);
-        st.games++;
-        st.kills += gp.kills;
-        st.deaths += gp.deaths;
-        if (win) st.wins++;
-        st.best = Math.max(st.best, gp.peak);
         Player p = gp.player();
-        if (p == null) return;
-        plugin.rewards().givePlacement(p, place);
-        if (!inGame) return;
+        if (!gp.bot && !debug) {
+            StatsManager.PlayerStats st = plugin.stats().get(gp.id, gp.name);
+            st.games++;
+            st.kills += gp.kills;
+            st.deaths += gp.deaths;
+            if (win) st.wins++;
+            st.best = Math.max(st.best, gp.peak);
+            if (p != null) plugin.rewards().givePlacement(p, place);
+        }
+        if (p == null || !inGame) return;
         if (win) {
             p.showTitle(Title.title(Msg.parse("<gold><bold>¡VICTORIA!"),
                     Msg.parse("<gray>Mapa conquistado: <white>" + pct(counts[gp.side], total))));
@@ -813,10 +989,10 @@ public class Game {
     }
 
     private void cancelTasks() {
-        for (BukkitTask t : new BukkitTask[]{countdownTask, renderTask, clockTask, finishTask, celebrationTask}) {
+        for (BukkitTask t : new BukkitTask[]{countdownTask, renderTask, clockTask, finishTask, celebrationTask, botTask}) {
             if (t != null) t.cancel();
         }
-        countdownTask = renderTask = clockTask = finishTask = celebrationTask = null;
+        countdownTask = renderTask = clockTask = finishTask = celebrationTask = botTask = null;
     }
 
     private void dispose() {

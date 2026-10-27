@@ -34,3 +34,8 @@ rewards:
   per-kill:
     coins: 5
     commands: []
+
+# Modo debug (/cw debug [arena] [bots]): partida de prueba en solitario
+debug:
+  default-bots: 2        # bots que se añaden por defecto
+  bot-delay-ticks: 3     # velocidad de los bots (menos = más rápidos)

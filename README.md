@@ -32,3 +32,16 @@ Recompensas y ajustes: config.yml. Datos: arenas.yml y stats.yml.
 - Al morir pasas unos segundos en espectador (death-spectate-seconds) y sales de la partida.
 - Si un jugador completa el mapa (win-percent) o es el último en pie, gana al instante:
   title, partículas y fuegos artificiales a su alrededor; luego la arena queda libre para otra partida.
+
+## Modo debug (probar en solitario)
+`/cw debug [arena] [bots]` inicia una partida de prueba al instante, sin cuenta atrás, con bots
+(por defecto 2, configurable en `debug.default-bots`). No guarda estadísticas ni da premios.
+Los bots salen, dejan estela, cierran bucles y reaparecen al morir, así puedes probar muertes y capturas.
+
+Dentro de la partida de prueba:
+- `/cw debug win` completa el mapa (prueba victoria, title y fuegos artificiales)
+- `/cw debug fill [%]` rellena el mapa hasta ese porcentaje
+- `/cw debug die` te mata (prueba espectador y salida)
+- `/cw debug time [segundos]` fija el tiempo restante (prueba el final por tiempo)
+- `/cw debug info` muestra el estado; `/cw debug stop` detiene la prueba
+También hay un botón "Probar en solitario" en `/cw admin` → arena.

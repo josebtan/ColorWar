@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 public class ColorWarCommand implements CommandExecutor, TabCompleter {
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_-]{1,16}");
     private static final List<String> PLAYER_SUBS = List.of("menu", "join", "leave", "list", "top", "stats");
-    private static final List<String> ADMIN_SUBS = List.of("admin", "create", "delete", "wand", "pos1", "pos2", "sel", "resize", "addspawn",
+    private static final List<String> ADMIN_SUBS = List.of("admin", "debug", "create", "delete", "wand", "pos1", "pos2", "sel", "resize", "addspawn",
             "clearspawns", "setlobby", "setmainlobby", "set", "info", "forcestart", "forcestop", "reload");
     private static final List<String> SET_KEYS = List.of("mode", "spawnmode", "min", "max", "time", "teams", "enabled");
 
@@ -87,6 +87,74 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
             case "admin" -> {
                 Player p = player(s);
                 if (p != null) new Menus.Admin(plugin).open(p);
+            }
+            case "debug" -> {
+                Player p = player(s);
+                if (p == null) return true;
+                Game cur = plugin.games().gameOf(p.getUniqueId());
+                String arg = a.length > 1 ? a[1].toLowerCase(Locale.ROOT) : "";
+                if (cur != null && cur.isDebug()) {
+                    switch (arg) {
+                        case "win" -> {
+                            cur.debugFill(p, 100);
+                            Msg.send(p, "<green>Mapa completado: ¡victoria!");
+                        }
+                        case "fill" -> {
+                            double pct = 50;
+                            if (a.length > 2) {
+                                try {
+                                    pct = Double.parseDouble(a.length > 2 ? a[2] : "50");
+                                } catch (NumberFormatException ex) {
+                                    Msg.send(p, "<red>Porcentaje no válido.");
+                                    return true;
+                                }
+                            }
+                            cur.debugFill(p, pct);
+                            Msg.send(p, "<green>Mapa rellenado al " + pct + "%.");
+                        }
+                        case "die" -> cur.debugKill(p);
+                        case "time" -> {
+                            int secs = 10;
+                            if (a.length > 2) {
+                                try {
+                                    secs = Integer.parseInt(a[2]);
+                                } catch (NumberFormatException ex) {
+                                    Msg.send(p, "<red>Segundos no válidos.");
+                                    return true;
+                                }
+                            }
+                            cur.debugSetTime(secs);
+                            Msg.send(p, "<green>Quedan " + secs + "s.");
+                        }
+                        case "stop" -> {
+                            cur.stopNow();
+                            Msg.send(p, "<green>Debug detenido.");
+                        }
+                        case "info" -> {
+                            for (String line : cur.debugInfo(p)) p.sendMessage(Msg.parse(line));
+                        }
+                        default -> debugHelp(p);
+                    }
+                    return true;
+                }
+                if (arg.isEmpty() || arg.equals("help")) {
+                    debugHelp(p);
+                    return true;
+                }
+                Arena ar = arena(s, a[1]);
+                if (ar == null) return true;
+                int bots = plugin.getConfig().getInt("debug.default-bots", 2);
+                if (a.length > 2) {
+                    try {
+                        bots = Integer.parseInt(a[2]);
+                    } catch (NumberFormatException ex) {
+                        Msg.send(p, "<red>Número de bots no válido.");
+                        return true;
+                    }
+                }
+                String err = plugin.games().joinDebug(p, ar, bots);
+                if (err != null) Msg.send(p, "<red>" + err);
+                else Msg.send(p, "<yellow>Modo debug iniciado. <gray>Usa /cw debug para ver los comandos de prueba.");
             }
             case "create" -> {
                 Player p = player(s);
@@ -278,6 +346,11 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
 
     // ---------------------------------------------------------------- utils
 
+    private void debugHelp(Player p) {
+        Msg.send(p, "<yellow>Debug: <white>/cw debug [arena] [bots]</white> <gray>inicia una partida de prueba contigo y bots.");
+        Msg.send(p, "<gray>Dentro: <white>/cw debug win | fill [%] | die | time [seg] | info | stop");
+    }
+
     private void help(CommandSender s) {
         Msg.send(s, "<yellow>Comandos: <white>/cw, /cw join [arena], /cw leave, /cw list, /cw top, /cw stats");
         if (s.hasPermission("colorwar.admin")) {
@@ -322,7 +395,10 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
             if (s.hasPermission("colorwar.admin")) out.addAll(ADMIN_SUBS);
         } else if (a.length == 2) {
             String sub = a[0].toLowerCase(Locale.ROOT);
-            if (sub.equals("top")) {
+            if (sub.equals("debug")) {
+                out.addAll(List.of("win", "fill", "die", "time", "info", "stop"));
+                for (Arena ar : plugin.arenas().all()) out.add(ar.name);
+            } else if (sub.equals("top")) {
                 for (StatsManager.Category cat : StatsManager.Category.values()) out.add(cat.name().toLowerCase(Locale.ROOT));
             } else if (!List.of("create", "list", "menu", "wand", "pos1", "pos2", "sel", "setmainlobby", "reload").contains(sub)) {
                 for (Arena ar : plugin.arenas().all()) out.add(ar.name);
