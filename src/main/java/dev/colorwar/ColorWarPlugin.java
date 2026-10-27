@@ -10,6 +10,7 @@ public class ColorWarPlugin extends JavaPlugin {
     private StatsManager stats;
     private RewardManager rewards;
     private GameManager games;
+    private SelectionManager selections;
 
     @Override
     public void onEnable() {
@@ -18,6 +19,7 @@ public class ColorWarPlugin extends JavaPlugin {
         stats = new StatsManager(this);
         rewards = new RewardManager(this);
         games = new GameManager(this);
+        selections = new SelectionManager();
         arenas.load();
         stats.load();
 
@@ -29,6 +31,7 @@ public class ColorWarPlugin extends JavaPlugin {
         }
         getServer().getPluginManager().registerEvents(new GameListener(this), this);
         getServer().getPluginManager().registerEvents(new MenuListener(), this);
+        getServer().getPluginManager().registerEvents(new SelectionListener(this), this);
         getLogger().info("ColorWar activado con " + arenas.all().size() + " arena(s).");
     }
 
@@ -43,6 +46,7 @@ public class ColorWarPlugin extends JavaPlugin {
     public StatsManager stats() { return stats; }
     public RewardManager rewards() { return rewards; }
     public GameManager games() { return games; }
+    public SelectionManager selections() { return selections; }
     public Location mainLobby() { return arenas.mainLobby(); }
 
     public Material baseBlock() {

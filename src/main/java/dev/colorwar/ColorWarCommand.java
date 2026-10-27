@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 public class ColorWarCommand implements CommandExecutor, TabCompleter {
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_-]{1,16}");
     private static final List<String> PLAYER_SUBS = List.of("menu", "join", "leave", "list", "top", "stats");
-    private static final List<String> ADMIN_SUBS = List.of("admin", "create", "delete", "pos1", "pos2", "addspawn",
+    private static final List<String> ADMIN_SUBS = List.of("admin", "create", "delete", "wand", "pos1", "pos2", "sel", "resize", "addspawn",
             "clearspawns", "setlobby", "setmainlobby", "set", "info", "forcestart", "forcestop", "reload");
     private static final List<String> SET_KEYS = List.of("mode", "spawnmode", "min", "max", "time", "teams", "enabled");
 
@@ -89,17 +89,38 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                 if (p != null) new Menus.Admin(plugin).open(p);
             }
             case "create" -> {
-                if (a.length < 2 || !NAME.matcher(a[1]).matches()) {
-                    Msg.send(s, "<red>Uso: /cw create <nombre> <gray>(letras, números, _ y -)");
+                Player p = player(s);
+                if (p == null) return true;
+                if (a.length < 3) {
+                    Msg.send(s, "<red>Uso: /cw create [nombre] [solo|team]");
+                    return true;
+                }
+                if (!NAME.matcher(a[1]).matches()) {
+                    Msg.send(s, "<red>Nombre no válido (usa letras, números, _ y -, máximo 16).");
                     return true;
                 }
                 if (plugin.arenas().get(a[1]) != null) {
-                    Msg.send(s, "<red>Ya existe esa arena.");
+                    Msg.send(s, "<red>Ya existe una arena con ese nombre.");
                     return true;
                 }
-                plugin.arenas().add(new Arena(a[1]));
-                Msg.send(s, "<green>Arena <white>" + a[1] + "<green> creada. Ahora usa <white>/cw pos1 " + a[1]
-                        + "<green> y <white>/cw pos2 " + a[1] + "<green> parado en dos esquinas del suelo.");
+                Arena.PlayMode mode = parseMode(a[2]);
+                if (mode == null) {
+                    Msg.send(s, "<red>Tipo no válido. Usa <white>solo</white> o <white>team</white>.");
+                    return true;
+                }
+                Selection sel = plugin.selections().get(p.getUniqueId());
+                String err = sel == null ? "Primero marca el área con el hacha de madera (usa /cw wand)." : sel.problem();
+                if (err != null) {
+                    Msg.send(s, "<red>No se puede crear: " + err);
+                    return true;
+                }
+                Arena ar = new Arena(a[1]);
+                sel.applyTo(ar);
+                ar.mode = mode;
+                plugin.arenas().add(ar);
+                Msg.send(s, "<green>Arena <white>" + ar.name + "<green> creada (" + ar.width() + "x" + ar.depth()
+                        + ", modo " + (mode == Arena.PlayMode.SOLO ? "solo" : "equipos") + "). "
+                        + "<gray>Ya puedes entrar con /cw join " + ar.name + ". Ajustes extra: /cw admin");
             }
             case "delete" -> {
                 Arena ar = need(s, a);
@@ -109,26 +130,44 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                 plugin.arenas().remove(ar);
                 Msg.send(s, "<green>Arena eliminada.");
             }
+            case "wand" -> {
+                Player p = player(s);
+                if (p == null) return true;
+                p.getInventory().addItem(Selection.wand());
+                Msg.send(p, "<green>Hacha entregada. <gray>Clic izquierdo = pos1, clic derecho = pos2, sobre dos esquinas del suelo.");
+            }
             case "pos1", "pos2" -> {
+                Player p = player(s);
+                if (p == null) return true;
+                boolean first = sub.equals("pos1");
+                Location l = p.getLocation();
+                Selection sel = plugin.selections().getOrCreate(p.getUniqueId());
+                sel.set(first, l.getWorld().getName(), l.getBlockX(), l.getBlockY() - 1, l.getBlockZ());
+                Msg.send(p, "<yellow>" + (first ? "Pos1" : "Pos2") + " marcada. " + sel.status());
+            }
+            case "sel" -> {
+                Player p = player(s);
+                if (p == null) return true;
+                Selection sel = plugin.selections().get(p.getUniqueId());
+                Msg.send(p, sel == null ? "<gray>No tienes ninguna selección. Usa /cw wand." : sel.status());
+            }
+            case "resize" -> {
                 Player p = player(s);
                 Arena ar = need(s, a);
                 if (p == null || ar == null) return true;
-                Location l = p.getLocation();
-                ar.world = l.getWorld().getName();
-                if (sub.equals("pos1")) {
-                    ar.x1 = l.getBlockX();
-                    ar.z1 = l.getBlockZ();
-                    ar.floorY = l.getBlockY() - 1;   // el bloque que pisas es el suelo de la arena
-                    ar.p1 = true;
-                } else {
-                    ar.x2 = l.getBlockX();
-                    ar.z2 = l.getBlockZ();
-                    ar.p2 = true;
+                if (plugin.games().gameOf(ar) != null) {
+                    Msg.send(s, "<red>La arena está en uso.");
+                    return true;
                 }
+                Selection sel = plugin.selections().get(p.getUniqueId());
+                String err = sel == null ? "Primero marca el área con el hacha de madera." : sel.problem();
+                if (err != null) {
+                    Msg.send(s, "<red>" + err);
+                    return true;
+                }
+                sel.applyTo(ar);
                 plugin.arenas().save();
-                String prob = ar.problem();
-                Msg.send(s, "<green>" + sub + " guardada." + (prob == null
-                        ? " <gray>Tamaño: <white>" + ar.width() + "x" + ar.depth() : " <gray>" + prob));
+                Msg.send(s, "<green>Área de <white>" + ar.name + "<green> actualizada (" + ar.width() + "x" + ar.depth() + ").");
             }
             case "addspawn" -> {
                 Player p = player(s);
@@ -200,7 +239,7 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
 
     private void handleSet(CommandSender s, String[] a) {
         if (a.length < 4) {
-            Msg.send(s, "<red>Uso: /cw set <arena> <" + String.join("|", SET_KEYS) + "> <valor>");
+            Msg.send(s, "<red>Uso: /cw set [arena] [" + String.join("|", SET_KEYS) + "] [valor]");
             return;
         }
         Arena ar = arena(s, a[1]);
@@ -231,11 +270,19 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
     // ---------------------------------------------------------------- utils
 
     private void help(CommandSender s) {
-        Msg.send(s, "<yellow>Comandos: <white>/cw [menu|join <arena>|leave|list|top|stats]");
+        Msg.send(s, "<yellow>Comandos: <white>/cw, /cw join [arena], /cw leave, /cw list, /cw top, /cw stats");
         if (s.hasPermission("colorwar.admin")) {
-            Msg.send(s, "<yellow>Admin: <white>/cw admin | create | delete | pos1 | pos2 | addspawn | clearspawns | "
+            Msg.send(s, "<yellow>Admin: <white>/cw admin | wand | create | delete | resize | sel | addspawn | clearspawns | "
                     + "setlobby | setmainlobby | set | info | forcestart | forcestop | reload");
         }
+    }
+
+    private Arena.PlayMode parseMode(String v) {
+        return switch (v.toLowerCase(Locale.ROOT)) {
+            case "solo" -> Arena.PlayMode.SOLO;
+            case "team", "teams", "equipo", "equipos" -> Arena.PlayMode.TEAM;
+            default -> null;
+        };
     }
 
     private Player player(CommandSender s) {
@@ -268,9 +315,11 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
             String sub = a[0].toLowerCase(Locale.ROOT);
             if (sub.equals("top")) {
                 for (StatsManager.Category cat : StatsManager.Category.values()) out.add(cat.name().toLowerCase(Locale.ROOT));
-            } else if (!sub.equals("create") && !sub.equals("list") && !sub.equals("menu")) {
+            } else if (!List.of("create", "list", "menu", "wand", "pos1", "pos2", "sel", "setmainlobby", "reload").contains(sub)) {
                 for (Arena ar : plugin.arenas().all()) out.add(ar.name);
             }
+        } else if (a.length == 3 && a[0].equalsIgnoreCase("create")) {
+            out.addAll(List.of("solo", "team"));
         } else if (a.length == 3 && a[0].equalsIgnoreCase("set")) {
             out.addAll(SET_KEYS);
         } else if (a.length == 4 && a[0].equalsIgnoreCase("set")) {

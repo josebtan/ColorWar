@@ -10,14 +10,14 @@ En pom.xml cambia `paper.version` y `java.version` a los de tu servidor
 (1.21.x -> Java 21; 26.x -> Java 25). Copia el jar a /plugins.
 
 ## Crear una arena
-1. Construye un suelo plano (SMOOTH_STONE) de entre 10x10 y 200x200 con paredes.
-2. Párate en una esquina:   /cw create mi_arena   y   /cw pos1 mi_arena
-3. Párate en la esquina opuesta:   /cw pos2 mi_arena
-4. Opcional: /cw setlobby mi_arena | /cw setmainlobby
-5. Modo y spawns:  /cw set mi_arena mode team|solo
-                   /cw set mi_arena spawnmode random|defined   (con /cw addspawn mi_arena)
-                   /cw set mi_arena min|max|time|teams <n>
-6. /cw admin abre el menú GUI de administración. /cw info mi_arena revisa la configuración.
+1. Construye un suelo plano de entre 10x10 y 200x200 (con paredes).
+2. `/cw wand` te da un hacha de madera (o usa cualquiera).
+3. Clic izquierdo en una esquina del suelo = pos1, clic derecho en la esquina opuesta = pos2.
+   Los dos puntos deben estar a la misma altura. `/cw sel` muestra el estado de la selección.
+4. `/cw create [nombre] [solo|team]` crea la arena si el área es válida.
+5. Opcional: `/cw setlobby [arena]`, `/cw setmainlobby`, `/cw addspawn [arena]` y
+   `/cw set [arena] spawnmode defined`, `/cw set [arena] min|max|time|teams [n]`.
+6. `/cw admin` abre el menú GUI. `/cw resize [arena]` cambia el área con una nueva selección.
 
 ## Jugadores
 /cw (menú), /cw join <arena>, /cw leave, /cw list, /cw top, /cw stats

@@ -198,6 +198,12 @@ public final class Menus {
                         problem == null ? "<green>Lista" : "<red>" + problem,
                         "<gray>Click para configurar"), e -> new ArenaAdmin(plugin, a).open(p));
             }
+            set(45, icon(Material.WOODEN_AXE, "<gold>Hacha de selección",
+                    "<gray>Clic izq = pos1, clic der = pos2",
+                    "<gray>Luego: /cw create [nombre] [solo|team]"), e -> {
+                p.getInventory().addItem(Selection.wand());
+                Msg.send(p, "<green>Hacha entregada.");
+            });
             set(49, icon(Material.ARROW, "<gray>Volver"), e -> new Main(plugin).open(p));
         }
     }
