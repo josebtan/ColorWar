@@ -45,7 +45,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --cleanup-tag -y || true
+          sleep 5
           gh release create latest target/ColorWar-*.jar \
             --target "${{ github.sha }}" \
             --title "ColorWar (última versión)" \
             --notes "Compilación automática del commit ${{ github.sha }}. Descarga el .jar directamente."
+          gh release edit latest --draft=false --latest
