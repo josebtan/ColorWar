@@ -4,13 +4,18 @@ import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import net.kyori.adventure.title.Title;
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
+import org.bukkit.FireworkEffect;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.entity.Firework;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -52,7 +57,8 @@ public class Game {
     private int[][] owner, trail;               // owner: lado+1 | trail: slot del jugador
     private final ArrayDeque<Integer> dirty = new ArrayDeque<>();
 
-    private BukkitTask countdownTask, renderTask, clockTask, finishTask;
+    private BukkitTask countdownTask, renderTask, clockTask, finishTask, celebrationTask;
+    private final List<GamePlayer> diedLeft = new ArrayList<>();   // eliminados que ya salieron (cobran premio al final)
     private int countdown, timeLeft;
     private boolean floorTouched, closing;
 
@@ -143,6 +149,10 @@ public class Game {
     }
 
     public void removePlayer(Player p) {
+        removePlayer(p, false);
+    }
+
+    public void removePlayer(Player p, boolean silent) {
         GamePlayer gp = players.get(p.getUniqueId());
         if (gp == null) return;
         gp.left = true;
@@ -155,7 +165,7 @@ public class Game {
         players.remove(p.getUniqueId());
         plugin.games().unregister(p.getUniqueId());
         restorePlayer(gp, p);
-        broadcast("<white><n> <gray>salió de la partida.", Msg.p("n", gp.name));
+        if (!silent) broadcast("<white><n> <gray>salió de la partida.", Msg.p("n", gp.name));
 
         if (state == State.COUNTDOWN && players.size() < arena.minPlayers) {
             if (countdownTask != null) {
@@ -451,6 +461,25 @@ public class Game {
             p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.2f);
             p.sendActionBar(Msg.parse("<green>+" + pct(gained, w * d) + " <gray>de territorio"));
         }
+        checkFullMap(counts());
+    }
+
+    /** Si algún lado completó el mapa (win-percent), gana al instante. */
+    private boolean checkFullMap(int[] counts) {
+        if (state != State.RUNNING) return false;
+        int total = w * d, best = -1, bestSide = -1;
+        for (int s = 0; s < sideCount; s++) {
+            if (counts[s] > best) {
+                best = counts[s];
+                bestSide = s;
+            }
+        }
+        if (bestSide >= 0 && best * 100.0 / total >= plugin.getConfig().getDouble("win-percent", 100.0)) {
+            broadcast("<gold><bold>¡<n> completó el mapa!", Msg.p("n", sideName[bestSide]));
+            end();
+            return true;
+        }
+        return false;
     }
 
     private void seed(boolean[][] out, ArrayDeque<int[]> q, int x, int z, int id) {
@@ -500,7 +529,8 @@ public class Game {
             broadcast("<white><v> <gray>chocó con su propia estela.", Msg.p("v", v.name));
         }
 
-        if (arena.mode == Arena.PlayMode.TEAM) {
+        boolean respawn = arena.mode == Arena.PlayMode.TEAM && plugin.getConfig().getBoolean("team-respawn", false);
+        if (respawn) {
             int secs = plugin.getConfig().getInt("team-respawn-seconds", 5);
             if (vp != null) {
                 vp.setGameMode(GameMode.SPECTATOR);
@@ -511,14 +541,26 @@ public class Game {
         } else {
             v.eliminated = true;
             markOut(v);
-            clearSide(v.side);
+            if (arena.mode == Arena.PlayMode.SOLO) clearSide(v.side);
+            int secs = plugin.getConfig().getInt("death-spectate-seconds", 4);
             if (vp != null) {
                 vp.setGameMode(GameMode.SPECTATOR);
                 vp.showTitle(Title.title(Msg.parse("<red><bold>¡Eliminado!"),
-                        Msg.parse("<gray>Puedes mirar o usar /cw leave")));
+                        Msg.parse("<gray>Saldrás de la partida en " + secs + "s")));
             }
+            Bukkit.getScheduler().runTaskLater(plugin, () -> leaveAfterDeath(v), secs * 20L);
         }
         checkEnd();
+    }
+
+    /** Pasados unos segundos de espectador, el eliminado sale de la partida. */
+    private void leaveAfterDeath(GamePlayer gp) {
+        if (state != State.RUNNING || gp.left || !players.containsKey(gp.id)) return;
+        Player p = gp.player();
+        if (p == null) return;
+        diedLeft.add(gp);
+        Msg.send(p, "<gray>Fuiste eliminado. ¡Gracias por jugar!");
+        removePlayer(p, true);
     }
 
     private void respawn(GamePlayer gp) {
@@ -604,15 +646,10 @@ public class Game {
         timeLeft--;
         int total = w * d;
         int[] counts = counts();
-        int max = 0;
-        for (int v : counts) max = Math.max(max, v);
         for (GamePlayer gp : players.values()) {
             if (gp.side >= 0) gp.peak = Math.max(gp.peak, counts[gp.side] * 100.0 / total);
         }
-        if (max * 100.0 / total >= plugin.getConfig().getDouble("win-percent", 100.0)) {
-            end();
-            return;
-        }
+        if (checkFullMap(counts)) return;
         Integer[] order = ranking(counts);
         bar.name(Msg.parse("<gold>ColorWar <gray>| <white>" + fmtTime(Math.max(0, timeLeft))));
         bar.progress(Math.max(0f, Math.min(1f, timeLeft / (float) arena.duration)));
@@ -676,6 +713,7 @@ public class Game {
         Integer[] order = ranking(counts);
         int[] rank = new int[sideCount];
         for (int i = 0; i < sideCount; i++) rank[order[i]] = i + 1;
+        String winnerName = sideName[order[0]];
 
         broadcast("<gold><bold>━━ Resultados ━━");
         for (int i = 0; i < Math.min(3, sideCount); i++) {
@@ -684,31 +722,85 @@ public class Game {
                     Msg.p("n", sideName[s]));
         }
 
+        List<GamePlayer> winners = new ArrayList<>();
         for (GamePlayer gp : players.values()) {
-            if (gp.side < 0) continue;
-            int place = rank[gp.side];
-            boolean win = place == 1;
-            StatsManager.PlayerStats st = plugin.stats().get(gp.id, gp.name);
-            st.games++;
-            st.kills += gp.kills;
-            st.deaths += gp.deaths;
-            if (win) st.wins++;
-            st.best = Math.max(st.best, gp.peak);
-            Player p = gp.player();
-            if (p != null) {
-                plugin.rewards().givePlacement(p, place);
-                p.showTitle(Title.title(
-                        Msg.parse(win ? "<gold><bold>¡VICTORIA!" : "<yellow>Puesto #" + place),
-                        Msg.parse("<gray>Mapa conquistado: <white>" + pct(counts[gp.side], total))));
-                p.playSound(p.getLocation(), win ? Sound.ENTITY_PLAYER_LEVELUP : Sound.UI_BUTTON_CLICK, 1f, 1f);
-            }
+            recordResult(gp, rank, counts, total, winnerName, true);
+            if (gp.side >= 0 && rank[gp.side] == 1) winners.add(gp);
         }
+        for (GamePlayer gp : diedLeft) recordResult(gp, rank, counts, total, winnerName, false);
+        diedLeft.clear();
         plugin.stats().save();
-        finishTask = Bukkit.getScheduler().runTaskLater(plugin, this::finish, 160L);
+
+        for (GamePlayer gp : winners) {
+            Player p = gp.player();
+            if (p != null && p.getGameMode() == GameMode.SPECTATOR) p.setGameMode(GameMode.ADVENTURE);
+        }
+        startCelebration(winners, sideColor[order[0]]);
+        int delay = Math.max(2, plugin.getConfig().getInt("end-delay-seconds", 8));
+        finishTask = Bukkit.getScheduler().runTaskLater(plugin, this::finish, delay * 20L);
+    }
+
+    private void recordResult(GamePlayer gp, int[] rank, int[] counts, int total, String winnerName, boolean inGame) {
+        if (gp.side < 0) return;
+        int place = rank[gp.side];
+        boolean win = place == 1;
+        StatsManager.PlayerStats st = plugin.stats().get(gp.id, gp.name);
+        st.games++;
+        st.kills += gp.kills;
+        st.deaths += gp.deaths;
+        if (win) st.wins++;
+        st.best = Math.max(st.best, gp.peak);
+        Player p = gp.player();
+        if (p == null) return;
+        plugin.rewards().givePlacement(p, place);
+        if (!inGame) return;
+        if (win) {
+            p.showTitle(Title.title(Msg.parse("<gold><bold>¡VICTORIA!"),
+                    Msg.parse("<gray>Mapa conquistado: <white>" + pct(counts[gp.side], total))));
+            p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1f);
+        } else {
+            p.showTitle(Title.title(Msg.parse("<yellow>Puesto #" + place),
+                    Msg.parse("<gray>Ganó <white><n>", Msg.p("n", winnerName))));
+        }
+    }
+
+    /** Partículas y fuegos artificiales alrededor de los ganadores. */
+    private void startCelebration(List<GamePlayer> winners, Colors.Entry col) {
+        if (winners.isEmpty()) return;
+        final int[] ticks = {0};
+        celebrationTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            ticks[0] += 4;
+            for (GamePlayer gp : winners) {
+                Player p = gp.player();
+                if (p == null || !p.isOnline()) continue;
+                Location l = p.getLocation().add(0, 1, 0);
+                p.getWorld().spawnParticle(Particle.FIREWORK, l, 40, 1.2, 1.0, 1.2, 0.05);
+                if (ticks[0] % 12 == 0) launchFirework(l, col);
+            }
+        }, 0L, 4L);
+    }
+
+    private void launchFirework(Location center, Colors.Entry col) {
+        double ang = rnd.nextDouble() * Math.PI * 2, r = 2 + rnd.nextDouble() * 2;
+        Location l = center.clone().add(Math.cos(ang) * r, 1 + rnd.nextDouble() * 2, Math.sin(ang) * r);
+        Firework fw = center.getWorld().spawn(l, Firework.class);
+        FireworkMeta meta = fw.getFireworkMeta();
+        meta.addEffect(FireworkEffect.builder()
+                .with(FireworkEffect.Type.BALL_LARGE)
+                .withColor(Color.fromRGB(col.rgb()))
+                .withFade(Color.WHITE)
+                .flicker(true)
+                .build());
+        fw.setFireworkMeta(meta);
+        fw.detonate();
     }
 
     private void finish() {
         closing = true;
+        if (celebrationTask != null) {
+            celebrationTask.cancel();
+            celebrationTask = null;
+        }
         for (GamePlayer gp : new ArrayList<>(players.values())) {
             restorePlayer(gp, gp.player());
             plugin.games().unregister(gp.id);
@@ -721,10 +813,10 @@ public class Game {
     }
 
     private void cancelTasks() {
-        for (BukkitTask t : new BukkitTask[]{countdownTask, renderTask, clockTask, finishTask}) {
+        for (BukkitTask t : new BukkitTask[]{countdownTask, renderTask, clockTask, finishTask, celebrationTask}) {
             if (t != null) t.cancel();
         }
-        countdownTask = renderTask = clockTask = finishTask = null;
+        countdownTask = renderTask = clockTask = finishTask = celebrationTask = null;
     }
 
     private void dispose() {

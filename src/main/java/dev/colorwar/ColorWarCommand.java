@@ -120,14 +120,17 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                 plugin.arenas().add(ar);
                 Msg.send(s, "<green>Arena <white>" + ar.name + "<green> creada (" + ar.width() + "x" + ar.depth()
                         + ", modo " + (mode == Arena.PlayMode.SOLO ? "solo" : "equipos") + "). "
-                        + "<gray>Ya puedes entrar con /cw join " + ar.name + ". Ajustes extra: /cw admin");
+                        + "<gray>Construyendo suelo y bordes...");
+                final String arenaName = ar.name;
+                ArenaBuilder.build(plugin, ar, () -> {
+                    if (p.isOnline()) Msg.send(p, "<green>Suelo y bordes listos. <gray>Entra con /cw join " + arenaName
+                            + ". Más ajustes: /cw admin");
+                });
             }
             case "delete" -> {
                 Arena ar = need(s, a);
                 if (ar == null) return true;
-                Game g = plugin.games().gameOf(ar);
-                if (g != null) g.stopNow();
-                plugin.arenas().remove(ar);
+                plugin.deleteArena(ar);
                 Msg.send(s, "<green>Arena eliminada.");
             }
             case "wand" -> {
@@ -165,9 +168,15 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                     Msg.send(s, "<red>" + err);
                     return true;
                 }
-                sel.applyTo(ar);
-                plugin.arenas().save();
-                Msg.send(s, "<green>Área de <white>" + ar.name + "<green> actualizada (" + ar.width() + "x" + ar.depth() + ").");
+                Msg.send(s, "<gray>Reconstruyendo suelo y bordes...");
+                ArenaBuilder.clearBorder(plugin, ar, () -> {
+                    sel.applyTo(ar);
+                    plugin.arenas().save();
+                    ArenaBuilder.build(plugin, ar, () -> {
+                        if (p.isOnline()) Msg.send(p, "<green>Área de <white>" + ar.name + "<green> actualizada ("
+                                + ar.width() + "x" + ar.depth() + ").");
+                    });
+                });
             }
             case "addspawn" -> {
                 Player p = player(s);

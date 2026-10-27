@@ -49,6 +49,23 @@ public class ColorWarPlugin extends JavaPlugin {
     public SelectionManager selections() { return selections; }
     public Location mainLobby() { return arenas.mainLobby(); }
 
+    public Material borderBlock() {
+        Material m = Material.matchMaterial(getConfig().getString("border-block", "BLACK_CONCRETE"));
+        return (m != null && m.isBlock()) ? m : Material.BLACK_CONCRETE;
+    }
+
+    public int borderHeight() {
+        return Math.max(1, Math.min(10, getConfig().getInt("border-height", 3)));
+    }
+
+    /** Detiene la partida, quita el borde y borra la arena. */
+    public void deleteArena(Arena a) {
+        Game g = games.gameOf(a);
+        if (g != null) g.stopNow();
+        if (a.problem() == null) ArenaBuilder.clearBorder(this, a, null);
+        arenas.remove(a);
+    }
+
     public Material baseBlock() {
         Material m = Material.matchMaterial(getConfig().getString("base-block", "SMOOTH_STONE"));
         return (m != null && m.isBlock()) ? m : Material.SMOOTH_STONE;

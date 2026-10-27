@@ -267,11 +267,19 @@ public final class Menus {
                 a.spawns.clear();
                 changed(p);
             });
+            set(21, icon(Material.BRICKS, "<gold>Reconstruir suelo y bordes", "<gray>Repinta el suelo y el borde"), e -> {
+                if (plugin.games().gameOf(a) != null) {
+                    Msg.send(p, "<red>La arena está en uso.");
+                    return;
+                }
+                Msg.send(p, "<gray>Reconstruyendo...");
+                ArenaBuilder.build(plugin, a, () -> {
+                    if (p.isOnline()) Msg.send(p, "<green>Suelo y bordes listos.");
+                });
+            });
             set(25, icon(Material.BARRIER, "<dark_red><bold>Eliminar arena", "<gray>Shift + click para confirmar"), e -> {
                 if (!e.isShiftClick()) return;
-                Game g = plugin.games().gameOf(a);
-                if (g != null) g.stopNow();
-                plugin.arenas().remove(a);
+                plugin.deleteArena(a);
                 new Admin(plugin).open(p);
             });
             set(31, icon(Material.ARROW, "<gray>Volver"), e -> new Admin(plugin).open(p));

@@ -14,7 +14,8 @@ En pom.xml cambia `paper.version` y `java.version` a los de tu servidor
 2. `/cw wand` te da un hacha de madera (o usa cualquiera).
 3. Clic izquierdo en una esquina del suelo = pos1, clic derecho en la esquina opuesta = pos2.
    Los dos puntos deben estar a la misma altura. `/cw sel` muestra el estado de la selección.
-4. `/cw create [nombre] [solo|team]` crea la arena si el área es válida.
+4. `/cw create [nombre] [solo|team]` crea la arena si el área es válida y construye el suelo (base-block)
+   y un borde visible alrededor (border-block / border-height en config.yml).
 5. Opcional: `/cw setlobby [arena]`, `/cw setmainlobby`, `/cw addspawn [arena]` y
    `/cw set [arena] spawnmode defined`, `/cw set [arena] min|max|time|teams [n]`.
 6. `/cw admin` abre el menú GUI. `/cw resize [arena]` cambia el área con una nueva selección.
@@ -26,3 +27,8 @@ En pom.xml cambia `paper.version` y `java.version` a los de tu servidor
 colorwar.play (todos) · colorwar.admin (op)
 
 Recompensas y ajustes: config.yml. Datos: arenas.yml y stats.yml.
+
+## Reglas de la partida
+- Al morir pasas unos segundos en espectador (death-spectate-seconds) y sales de la partida.
+- Si un jugador completa el mapa (win-percent) o es el último en pie, gana al instante:
+  title, partículas y fuegos artificiales a su alrededor; luego la arena queda libre para otra partida.
