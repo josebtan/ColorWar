@@ -38,3 +38,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: target/ColorWar-*.jar
+
+      - name: Publicar .jar en la release "latest" (cada push a main)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --cleanup-tag -y || true
+          gh release create latest target/ColorWar-*.jar \
+            --target "${{ github.sha }}" \
+            --title "ColorWar (última versión)" \
+            --notes "Compilación automática del commit ${{ github.sha }}. Descarga el .jar directamente."
