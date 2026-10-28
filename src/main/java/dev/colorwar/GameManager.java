@@ -44,7 +44,7 @@ public class GameManager {
     }
 
     /** Partida de prueba en solitario: sin cuenta atrás, con bots, sin estadísticas ni premios. */
-    public String joinDebug(Player p, Arena a, int bots, java.util.List<String> names) {
+    public String joinDebug(Player p, Arena a, int bots, java.util.List<Game.BotSpec> specs, int level) {
         if (byPlayer.containsKey(p.getUniqueId())) return "Ya estás en una partida. Usa /cw leave.";
         if (!a.isReady()) return "Esa arena no está disponible.";
         if (games.containsKey(a.name.toLowerCase())) {
@@ -54,7 +54,7 @@ public class GameManager {
         g.setDebug(true);
         games.put(a.name.toLowerCase(), g);
         g.addPlayer(p);
-        g.addBots(Math.max(0, bots), names);
+        g.addBots(Math.max(0, bots), specs, level);
         g.forceStart();
         return null;
     }

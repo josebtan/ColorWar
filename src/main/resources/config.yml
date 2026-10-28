@@ -38,4 +38,5 @@ rewards:
 # Modo debug (/cw debug [arena] [bots]): partida de prueba en solitario
 debug:
   default-bots: 2        # bots que se añaden por defecto
+  default-level: 2       # inteligencia por defecto: 1 fácil, 2 normal, 3 difícil
   bot-delay-ticks: 3     # velocidad de los bots (menos = más rápidos)

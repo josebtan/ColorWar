@@ -35,16 +35,24 @@ Recompensas y ajustes: config.yml. Datos: arenas.yml y stats.yml.
 
 ## Modo debug (probar en solitario)
 `/cw debug [arena] [bots o nombres]` inicia una partida de prueba al instante, sin cuenta atrás, con bots
-(por defecto 2, configurable en `debug.default-bots`). Ejemplos: `/cw debug mapa1 3` o `/cw debug mapa1 Pepe,Luis`.
+(por defecto 2, configurable en `debug.default-bots`). Ejemplos: `/cw debug mapa1 3 2`, `/cw debug mapa1 Pepe,Luis` o `/cw debug mapa1 Pepe:1,Luis:3` (nombre:nivel).
 Los bots son visibles (modelo de jugador con armadura del color de su equipo y su nombre encima). No guarda estadísticas ni da premios.
 Los bots salen, dejan estela, cierran bucles y reaparecen al morir, así puedes probar muertes y capturas.
 
 Dentro de la partida de prueba:
-- `/cw debug addbot [nombre] [equipo]` añade un bot con nombre (equipo solo en modo team)
-- `/cw debug addbots [n]` añade varios bots; `/cw debug removebot [nombre]` quita uno
+- `/cw debug addbot [nombre] [nivel] [equipo]` añade un bot con nombre y nivel (equipo solo en modo team)
+- `/cw debug addbots [n] [nivel]` añade varios bots; `/cw debug setlevel [nombre|todos] [nivel]` cambia su nivel; `/cw debug removebot [nombre]` quita uno
 - `/cw debug win` completa el mapa (prueba victoria, title y fuegos artificiales)
 - `/cw debug fill [%]` rellena el mapa hasta ese porcentaje
 - `/cw debug die` te mata (prueba espectador y salida)
 - `/cw debug time [segundos]` fija el tiempo restante (prueba el final por tiempo)
 - `/cw debug info` muestra el estado; `/cw debug stop` detiene la prueba
 También hay un botón "Probar en solitario" en `/cw admin` → arena.
+
+### Niveles de los bots (1-3, se ven como estrellas junto al nombre)
+- **1 Fácil ★**: deambula en línea recta, va a media velocidad, no huye ni ataca.
+- **2 Normal ★★**: hace bucles rectangulares para conquistar, vuelve a casa si hay un enemigo cerca
+  y ataca estelas enemigas cercanas mientras la suya es corta.
+- **3 Difícil ★★★**: bucles más grandes hacia donde hay más terreno (prefiere el enemigo), detecta
+  amenazas desde más lejos y persigue estelas enemigas a mayor distancia.
+Nivel por defecto: `debug.default-level` en config.yml.

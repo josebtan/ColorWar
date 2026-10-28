@@ -23,7 +23,7 @@ public final class BotEntities {
 
     private BotEntities() {}
 
-    public static Entity spawn(Location loc, String name, Colors.Entry col) {
+    public static Entity spawn(Location loc, String name, String stars, Colors.Entry col) {
         Entity ent = null;
         try {
             ent = loc.getWorld().spawnEntity(loc, EntityType.valueOf("MANNEQUIN"));
@@ -40,7 +40,7 @@ public final class BotEntities {
             }
         }
         ent.addScoreboardTag(TAG);
-        ent.customName(Msg.parse("<" + col.mm() + "><n>", Msg.p("n", name)));
+        label(ent, name, stars, col);
         ent.setCustomNameVisible(true);
         ent.setInvulnerable(true);
         ent.setSilent(true);
@@ -57,6 +57,11 @@ public final class BotEntities {
             }
         }
         return ent;
+    }
+
+    /** Nombre sobre el bot: nombre con el color del equipo y estrellas según su nivel. */
+    public static void label(Entity ent, String name, String stars, Colors.Entry col) {
+        ent.customName(Msg.parse("<" + col.mm() + "><n> <yellow><s>", Msg.p("n", name), Msg.p("s", stars)));
     }
 
     private static ItemStack dyed(Material m, int rgb) {

@@ -119,16 +119,21 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                                 Msg.send(p, "<red>Nombre no válido (letras, números y _, máx. 16).");
                                 return true;
                             }
+                            Integer lv = a.length > 3 ? parseLevel(a[3]) : Integer.valueOf(plugin.getConfig().getInt("debug.default-level", 2));
+                            if (lv == null) {
+                                Msg.send(p, "<red>Nivel no válido. Usa 1, 2 o 3 (fácil, normal, difícil).");
+                                return true;
+                            }
                             int team = 0;
-                            if (a.length > 3) {
+                            if (a.length > 4) {
                                 try {
-                                    team = Integer.parseInt(a[3]);
+                                    team = Integer.parseInt(a[4]);
                                 } catch (NumberFormatException ex) {
                                     Msg.send(p, "<red>Número de equipo no válido.");
                                     return true;
                                 }
                             }
-                            String err = cur.debugAddBot(nm, team);
+                            String err = cur.debugAddBot(nm, team, lv);
                             if (err != null) Msg.send(p, "<red>" + err);
                         }
                         case "addbots" -> {
@@ -141,13 +146,27 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                                     return true;
                                 }
                             }
+                            Integer lv = a.length > 3 ? parseLevel(a[3]) : Integer.valueOf(plugin.getConfig().getInt("debug.default-level", 2));
+                            if (lv == null) {
+                                Msg.send(p, "<red>Nivel no válido. Usa 1, 2 o 3 (fácil, normal, difícil).");
+                                return true;
+                            }
                             for (int i = 0; i < n; i++) {
-                                String err = cur.debugAddBot(null, 0);
+                                String err = cur.debugAddBot(null, 0, lv);
                                 if (err != null) {
                                     Msg.send(p, "<red>" + err);
                                     break;
                                 }
                             }
+                        }
+                        case "setlevel" -> {
+                            Integer lv = a.length > 3 ? parseLevel(a[3]) : null;
+                            if (a.length < 4 || lv == null) {
+                                Msg.send(p, "<red>Uso: /cw debug setlevel [nombre|todos] [1-3]");
+                                return true;
+                            }
+                            String err = cur.debugSetLevel(a[2], lv);
+                            Msg.send(p, err != null ? "<red>" + err : "<green>Nivel cambiado a " + Game.levelName(lv) + " " + Game.stars(lv));
                         }
                         case "removebot" -> {
                             if (a.length < 3) {
@@ -189,21 +208,32 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                 Arena ar = arena(s, a[1]);
                 if (ar == null) return true;
                 int bots = plugin.getConfig().getInt("debug.default-bots", 2);
-                List<String> names = new ArrayList<>();
+                int defLevel = plugin.getConfig().getInt("debug.default-level", 2);
+                if (a.length > 3) {
+                    Integer lv = parseLevel(a[3]);
+                    if (lv == null) {
+                        Msg.send(p, "<red>Nivel no válido. Usa 1, 2 o 3 (fácil, normal, difícil).");
+                        return true;
+                    }
+                    defLevel = lv;
+                }
+                List<Game.BotSpec> names = new ArrayList<>();
                 if (a.length > 2) {
                     if (a[2].matches("\\d+")) {
                         bots = Integer.parseInt(a[2]);
                     } else {
-                        for (String nm : a[2].split(",")) {
-                            if (!BOT_NAME.matcher(nm).matches()) {
-                                Msg.send(p, "<red>Nombre de bot no válido: " + nm + " <gray>(letras, números y _, máx. 16)");
+                        for (String token : a[2].split(",")) {
+                            String[] parts = token.split(":");
+                            Integer lv = parts.length > 1 ? parseLevel(parts[1]) : Integer.valueOf(defLevel);
+                            if (!BOT_NAME.matcher(parts[0]).matches() || lv == null) {
+                                Msg.send(p, "<red>Bot no válido: " + token + " <gray>(formato nombre o nombre:nivel)");
                                 return true;
                             }
-                            names.add(nm);
+                            names.add(new Game.BotSpec(parts[0], lv));
                         }
                     }
                 }
-                String err = plugin.games().joinDebug(p, ar, bots, names);
+                String err = plugin.games().joinDebug(p, ar, bots, names, defLevel);
                 if (err != null) Msg.send(p, "<red>" + err);
                 else Msg.send(p, "<yellow>Modo debug iniciado. <gray>Usa /cw debug para ver los comandos de prueba.");
             }
@@ -398,8 +428,9 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
     // ---------------------------------------------------------------- utils
 
     private void debugHelp(Player p) {
-        Msg.send(p, "<yellow>Debug: <white>/cw debug [arena] [bots o nombres]</white> <gray>ej: /cw debug mapa1 3  o  /cw debug mapa1 Pepe,Luis");
-        Msg.send(p, "<gray>Bots: <white>/cw debug addbot [nombre] [equipo] | addbots [n] | removebot [nombre]");
+        Msg.send(p, "<yellow>Debug: <white>/cw debug [arena] [bots o nombres] [nivel]</white> <gray>ej: /cw debug mapa1 3 2  o  /cw debug mapa1 Pepe:1,Luis:3");
+        Msg.send(p, "<gray>Bots: <white>/cw debug addbot [nombre] [nivel] [equipo] | addbots [n] [nivel] | setlevel [nombre|todos] [nivel] | removebot [nombre]");
+        Msg.send(p, "<gray>Niveles: <white>1 fácil ★ · 2 normal ★★ · 3 difícil ★★★");
         Msg.send(p, "<gray>Pruebas: <white>/cw debug win | fill [%] | die | time [seg] | info | stop");
     }
 
@@ -409,6 +440,16 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
             Msg.send(s, "<yellow>Admin: <white>/cw admin | wand | create | delete | resize | sel | addspawn | clearspawns | "
                     + "setlobby | setmainlobby | set | info | forcestart | forcestop | reload");
         }
+    }
+
+    /** 1-3 o fácil/normal/difícil (también easy/medium/hard). */
+    private Integer parseLevel(String v) {
+        return switch (v.toLowerCase(Locale.ROOT)) {
+            case "1", "facil", "fácil", "easy" -> 1;
+            case "2", "normal", "medio", "medium" -> 2;
+            case "3", "dificil", "difícil", "hard" -> 3;
+            default -> null;
+        };
     }
 
     private Arena.PlayMode parseMode(String v) {
@@ -448,14 +489,14 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
         } else if (a.length == 2) {
             String sub = a[0].toLowerCase(Locale.ROOT);
             if (sub.equals("debug")) {
-                out.addAll(List.of("win", "fill", "die", "time", "info", "stop", "addbot", "addbots", "removebot"));
+                out.addAll(List.of("win", "fill", "die", "time", "info", "stop", "addbot", "addbots", "removebot", "setlevel"));
                 for (Arena ar : plugin.arenas().all()) out.add(ar.name);
             } else if (sub.equals("top")) {
                 for (StatsManager.Category cat : StatsManager.Category.values()) out.add(cat.name().toLowerCase(Locale.ROOT));
             } else if (!List.of("create", "list", "menu", "wand", "pos1", "pos2", "sel", "setmainlobby", "reload").contains(sub)) {
                 for (Arena ar : plugin.arenas().all()) out.add(ar.name);
             }
-        } else if (a.length == 3 && a[0].equalsIgnoreCase("debug") && a[1].equalsIgnoreCase("removebot")
+        } else if (a.length == 3 && a[0].equalsIgnoreCase("debug") && (a[1].equalsIgnoreCase("removebot") || a[1].equalsIgnoreCase("setlevel"))
                 && s instanceof Player pl) {
             Game g = plugin.games().gameOf(pl.getUniqueId());
             if (g != null) out.addAll(g.botNames());

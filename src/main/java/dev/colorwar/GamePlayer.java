@@ -20,6 +20,9 @@ public class GamePlayer {
     public boolean bot;
     public boolean returning;
     public org.bukkit.entity.Entity entity;   // cuerpo visible del bot
+    public int level = 2;                      // inteligencia: 1 fácil, 2 normal, 3 difícil
+    public int phase, legSteps, len1, len2, d1x, d1z, d2x, d2z;
+    public boolean skip;
     public int dirX, dirZ, limit, homeX, homeZ;
     public int side = -1;
     public int slot = 0;

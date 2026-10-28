@@ -44,6 +44,9 @@ import java.util.UUID;
 public class Game {
     public enum State { WAITING, COUNTDOWN, RUNNING, ENDING }
 
+    /** Bot a crear: nombre y nivel de inteligencia (1-3). */
+    public record BotSpec(String name, int level) {}
+
     private static final int[] DX = {1, -1, 0, 0};
     private static final int[] DZ = {0, 0, 1, -1};
 
@@ -641,21 +644,34 @@ public class Game {
 
     // ------------------------------------------------------------ debug
 
-    /** Antes de empezar: añade n bots ("Bot 1", "Bot 2"...) o uno por cada nombre dado. */
-    public void addBots(int n, List<String> names) {
-        if (names != null && !names.isEmpty()) {
-            for (String nm : names) {
+    public static String stars(int level) {
+        return "★".repeat(Math.max(1, Math.min(3, level)));
+    }
+
+    public static String levelName(int level) {
+        return switch (Math.max(1, Math.min(3, level))) {
+            case 1 -> "Fácil";
+            case 2 -> "Normal";
+            default -> "Difícil";
+        };
+    }
+
+    /** Antes de empezar: añade un bot por cada BotSpec, o n bots ("Bot 1"...) del nivel indicado. */
+    public void addBots(int n, List<BotSpec> specs, int level) {
+        if (specs != null && !specs.isEmpty()) {
+            for (BotSpec sp : specs) {
                 if (players.size() >= maxPlayers()) break;
-                addPreBot(nm);
+                addPreBot(sp.name(), sp.level());
             }
             return;
         }
-        for (int i = 0; i < n && players.size() < maxPlayers(); i++) addPreBot(nextBotName());
+        for (int i = 0; i < n && players.size() < maxPlayers(); i++) addPreBot(nextBotName(), level);
     }
 
-    private void addPreBot(String name) {
+    private void addPreBot(String name, int level) {
         for (GamePlayer o : players.values()) if (o.name.equalsIgnoreCase(name)) return;
         GamePlayer b = new GamePlayer(name);
+        b.level = Math.max(1, Math.min(3, level));
         b.alive = true;
         players.put(b.id, b);
     }
@@ -676,7 +692,7 @@ public class Game {
     }
 
     /** Añade un bot con la partida en curso. teamNum: equipo 1..N (0 = automático, solo en modo equipos). */
-    public String debugAddBot(String name, int teamNum) {
+    public String debugAddBot(String name, int teamNum, int level) {
         if (!debug) return "Esto solo funciona en una partida debug.";
         if (state != State.RUNNING) return "La partida no está en curso.";
         if (name == null || name.isBlank()) name = nextBotName();
@@ -709,6 +725,7 @@ public class Game {
             sideName[side] = name;
         }
         GamePlayer b = new GamePlayer(name);
+        b.level = Math.max(1, Math.min(3, level));
         b.side = side;
         b.alive = true;
         b.slot = bySlot.length;
@@ -726,8 +743,23 @@ public class Game {
         b.homeZ = cell[1];
         initBot(b);
         spawnBotEntity(b);
-        broadcast("<white><n> <gray>(bot) se unió a la partida.", Msg.p("n", name));
+        broadcast("<white><n> <gray>(bot " + levelName(b.level) + ") se unió a la partida.", Msg.p("n", name));
         return null;
+    }
+
+    /** Cambia el nivel de un bot (o de todos con "todos"). */
+    public String debugSetLevel(String target, int level) {
+        boolean all = target.equalsIgnoreCase("todos") || target.equalsIgnoreCase("all");
+        int lv = Math.max(1, Math.min(3, level)), n = 0;
+        for (GamePlayer o : players.values()) {
+            if (!o.bot || !(all || o.name.equalsIgnoreCase(target))) continue;
+            o.level = lv;
+            o.phase = 0;
+            o.returning = false;
+            if (o.entity != null && o.side >= 0) BotEntities.label(o.entity, o.name, stars(lv), sideColor[o.side]);
+            n++;
+        }
+        return n == 0 ? "No hay ningún bot llamado " + target + "." : null;
     }
 
     public String debugRemoveBot(String name) {
@@ -753,6 +785,9 @@ public class Game {
         b.dirZ = dr[1];
         b.limit = 6 + rnd.nextInt(14);
         b.returning = false;
+        b.phase = 0;
+        b.legSteps = 0;
+        b.skip = false;
     }
 
     private void botRespawn(GamePlayer b) {
@@ -770,7 +805,7 @@ public class Game {
 
     private void spawnBotEntity(GamePlayer b) {
         if (b.lastCell < 0 || b.side < 0) return;
-        b.entity = BotEntities.spawn(cellLocation(b.lastCell, 0f), b.name, sideColor[b.side]);
+        b.entity = BotEntities.spawn(cellLocation(b.lastCell, 0f), b.name, stars(b.level), sideColor[b.side]);
     }
 
     private void removeBotEntity(GamePlayer b) {
@@ -808,45 +843,35 @@ public class Game {
         return pool.isEmpty() ? null : pool.get(rnd.nextInt(pool.size()));
     }
 
-    /** IA simple: sale en línea recta con giros al azar y vuelve a casa al alcanzar su límite de estela. */
+    // ---------------------------------------------------------- IA de bots
+    // Nivel 1 (fácil):   deambula en línea recta, vuelve a casa al azar y va a mitad de velocidad.
+    // Nivel 2 (normal):  hace bucles rectangulares, huye a casa si hay un enemigo cerca y
+    //                    ataca estelas enemigas cercanas cuando la suya es corta.
+    // Nivel 3 (difícil): bucles más grandes hacia donde hay más terreno (prefiere el enemigo),
+    //                    detecta amenazas desde más lejos y persigue estelas a mayor distancia.
+
+    private static final int PH_IDLE = 0, PH_LEG1 = 1, PH_LEG2 = 2, PH_LEG3 = 3, PH_RETURN = 4, PH_CHASE = 5;
+
     private void botStep(GamePlayer b) {
         int cx = b.lastCell / d, cz = b.lastCell % d;
-        if (!b.returning && b.trailCells.size() >= b.limit) b.returning = true;
-        boolean wasReturning = b.returning;
-        int dx = b.dirX, dz = b.dirZ;
-        if (b.returning) {
-            int ex = b.homeX - cx, ez = b.homeZ - cz;
-            int sx = Integer.signum(ex), sz = Integer.signum(ez);
-            boolean preferX = Math.abs(ex) >= Math.abs(ez);
-            int[] first = preferX ? new int[]{sx, 0} : new int[]{0, sz};
-            int[] second = preferX ? new int[]{0, sz} : new int[]{sx, 0};
-            if ((first[0] != 0 || first[1] != 0) && !botBlocked(b, cx + first[0], cz + first[1])) {
-                dx = first[0];
-                dz = first[1];
-            } else if ((second[0] != 0 || second[1] != 0) && !botBlocked(b, cx + second[0], cz + second[1])) {
-                dx = second[0];
-                dz = second[1];
-            } else {
-                int[] r = botRandomDir(b, cx, cz);
-                if (r == null) return;
-                dx = r[0];
-                dz = r[1];
-            }
-        } else if ((dx == 0 && dz == 0) || rnd.nextInt(100) < 18 || botBlocked(b, cx + dx, cz + dz)) {
-            int[] r = botRandomDir(b, cx, cz);
-            if (r == null) return;
-            dx = r[0];
-            dz = r[1];
+        if (b.level <= 1) {
+            b.skip = !b.skip;
+            if (b.skip) return;                       // la mitad de velocidad
+            if (!b.returning && b.trailCells.size() >= b.limit) b.returning = true;
         }
-        b.dirX = dx;
-        b.dirZ = dz;
-        int nx = cx + dx, nz = cz + dz;
+        boolean wasReturning = b.returning;
+        int[] dir = botDecide(b, cx, cz);
+        if (dir == null) return;
+        int nx = cx + dir[0], nz = cz + dir[1];
+        if (botBlocked(b, nx, nz)) return;
+        b.dirX = dir[0];
+        b.dirZ = dir[1];
         processStep(b, nx, nz, nx * d + nz);
         if (b.alive && b.entity != null) {
-            float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+            float yaw = (float) Math.toDegrees(Math.atan2(-dir[0], dir[1]));
             b.entity.teleport(cellLocation(nx * d + nz, yaw));
         }
-        if (wasReturning && b.alive && b.trailCells.isEmpty() && owner[nx][nz] == b.side + 1) {
+        if (b.level <= 1 && wasReturning && b.alive && b.trailCells.isEmpty() && owner[nx][nz] == b.side + 1) {
             b.returning = false;
             b.limit = 6 + rnd.nextInt(14);
             int[] r = botRandomDir(b, nx, nz);
@@ -855,6 +880,211 @@ public class Game {
                 b.dirZ = r[1];
             }
         }
+    }
+
+    private int[] botDecide(GamePlayer b, int cx, int cz) {
+        if (b.level <= 1) return decideWander(b, cx, cz);
+        boolean hard = b.level >= 3;
+        int tl = b.trailCells.size();
+        boolean inHome = owner[cx][cz] == b.side + 1;
+        if (inHome && tl == 0 && b.phase >= PH_LEG2) b.phase = PH_IDLE;
+        if (tl > 0 && b.phase == PH_IDLE) b.phase = PH_RETURN;
+
+        // Defensa: con estela y un enemigo cerca, volver a casa
+        GamePlayer threat = nearestEnemy(b, cx, cz, hard ? 6 : 4);
+        if (tl >= 2 && threat != null) b.phase = PH_RETURN;
+
+        // Ataque: perseguir estelas enemigas mientras la propia sea corta
+        int atkMax = hard ? 12 : 6;
+        if (b.phase == PH_CHASE && tl > atkMax) b.phase = PH_RETURN;
+        if (b.phase != PH_RETURN && tl <= atkMax) {
+            int[] tgt = nearestEnemyTrail(b, cx, cz, hard ? 14 : 8);
+            if (tgt != null) {
+                int[] st = stepToward(b, cx, cz, tgt[0], tgt[1]);
+                if (st != null) {
+                    b.phase = PH_CHASE;
+                    return st;
+                }
+            } else if (b.phase == PH_CHASE) {
+                b.phase = tl > 0 ? PH_RETURN : PH_IDLE;
+            }
+        }
+
+        // Plan: bucle rectangular (salida, lado, vuelta paralela, regreso)
+        for (int guard = 0; guard < 6; guard++) {
+            switch (b.phase) {
+                case PH_IDLE -> {
+                    planLoop(b, cx, cz, hard);
+                    if (b.phase == PH_IDLE) return botRandomDir(b, cx, cz);
+                }
+                case PH_LEG1 -> {
+                    if (botBlocked(b, cx + b.d1x, cz + b.d1z)) {
+                        if (tl == 0) {
+                            b.phase = PH_IDLE;
+                            return botRandomDir(b, cx, cz);
+                        }
+                        b.phase = PH_LEG2;
+                        b.legSteps = 0;
+                    } else if (tl > 0 && b.legSteps >= b.len1) {
+                        b.phase = PH_LEG2;
+                        b.legSteps = 0;
+                    } else {
+                        if (tl > 0) b.legSteps++;   // solo cuentan los pasos fuera de casa
+                        return new int[]{b.d1x, b.d1z};
+                    }
+                }
+                case PH_LEG2 -> {
+                    if (botBlocked(b, cx + b.d2x, cz + b.d2z) || b.legSteps >= b.len2) {
+                        b.phase = PH_LEG3;
+                        b.legSteps = 0;
+                    } else {
+                        b.legSteps++;
+                        return new int[]{b.d2x, b.d2z};
+                    }
+                }
+                case PH_LEG3 -> {
+                    if (botBlocked(b, cx - b.d1x, cz - b.d1z) || b.legSteps >= b.len1) {
+                        b.phase = PH_RETURN;
+                    } else {
+                        b.legSteps++;
+                        return new int[]{-b.d1x, -b.d1z};
+                    }
+                }
+                default -> {   // PH_RETURN o PH_CHASE sin objetivo: volver al territorio propio más cercano
+                    int[] tgt = nearestOwnCell(b, cx, cz, 30);
+                    if (tgt == null) tgt = new int[]{b.homeX, b.homeZ};
+                    int[] st = stepToward(b, cx, cz, tgt[0], tgt[1]);
+                    return st != null ? st : botRandomDir(b, cx, cz);
+                }
+            }
+        }
+        return botRandomDir(b, cx, cz);
+    }
+
+    /** Nivel 1: línea recta con giros al azar; al llegar a su límite de estela vuelve hacia su base. */
+    private int[] decideWander(GamePlayer b, int cx, int cz) {
+        int dx = b.dirX, dz = b.dirZ;
+        if (b.returning) {
+            int ex = b.homeX - cx, ez = b.homeZ - cz;
+            int sx = Integer.signum(ex), sz = Integer.signum(ez);
+            boolean preferX = Math.abs(ex) >= Math.abs(ez);
+            int[] first = preferX ? new int[]{sx, 0} : new int[]{0, sz};
+            int[] second = preferX ? new int[]{0, sz} : new int[]{sx, 0};
+            if ((first[0] != 0 || first[1] != 0) && !botBlocked(b, cx + first[0], cz + first[1])) return first;
+            if ((second[0] != 0 || second[1] != 0) && !botBlocked(b, cx + second[0], cz + second[1])) return second;
+            return botRandomDir(b, cx, cz);
+        }
+        if ((dx == 0 && dz == 0) || rnd.nextInt(100) < 18 || botBlocked(b, cx + dx, cz + dz)) {
+            return botRandomDir(b, cx, cz);
+        }
+        return new int[]{dx, dz};
+    }
+
+    private void planLoop(GamePlayer b, int cx, int cz, boolean hard) {
+        int bestScore = Integer.MIN_VALUE;
+        int[] best = null;
+        for (int[] dr : DIRS) {
+            if (botBlocked(b, cx + dr[0], cz + dr[1])) continue;
+            int score = rnd.nextInt(6);
+            if (hard) {   // preferir donde haya más terreno ajeno por delante
+                for (int k = 1; k <= 14; k++) {
+                    int x = cx + dr[0] * k, z = cz + dr[1] * k;
+                    if (x < 0 || z < 0 || x >= w || z >= d) break;
+                    int o = owner[x][z];
+                    if (o == 0) score += 2;
+                    else if (o != b.side + 1) score += 3;
+                }
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                best = dr;
+            }
+        }
+        if (best == null) return;
+        b.d1x = best[0];
+        b.d1z = best[1];
+        int[] p1 = {-b.d1z, b.d1x}, p2 = {b.d1z, -b.d1x};
+        int[] side = room(cx, cz, p1) >= room(cx, cz, p2) ? p1 : p2;
+        b.d2x = side[0];
+        b.d2z = side[1];
+        b.len1 = hard ? 6 + rnd.nextInt(9) : 4 + rnd.nextInt(6);
+        b.len2 = hard ? 4 + rnd.nextInt(8) : 3 + rnd.nextInt(5);
+        b.legSteps = 0;
+        b.phase = PH_LEG1;
+    }
+
+    private int room(int cx, int cz, int[] dr) {
+        int n = 0;
+        while (n < 20) {
+            int x = cx + dr[0] * (n + 1), z = cz + dr[1] * (n + 1);
+            if (x < 0 || z < 0 || x >= w || z >= d) break;
+            n++;
+        }
+        return n;
+    }
+
+    /** Enemigo vivo más cercano (distancia Chebyshev), o null si ninguno está a menos de maxDist. */
+    private GamePlayer nearestEnemy(GamePlayer b, int cx, int cz, int maxDist) {
+        GamePlayer best = null;
+        int bd = Integer.MAX_VALUE;
+        for (GamePlayer o : players.values()) {
+            if (o == b || o.side == b.side || !o.alive || o.eliminated || o.left || o.lastCell < 0) continue;
+            int dist = Math.max(Math.abs(o.lastCell / d - cx), Math.abs(o.lastCell % d - cz));
+            if (dist <= maxDist && dist < bd) {
+                bd = dist;
+                best = o;
+            }
+        }
+        return best;
+    }
+
+    /** Celda con estela enemiga más cercana dentro del radio, o null. */
+    private int[] nearestEnemyTrail(GamePlayer b, int cx, int cz, int radius) {
+        int bestD = Integer.MAX_VALUE;
+        int[] best = null;
+        for (int x = Math.max(0, cx - radius); x <= Math.min(w - 1, cx + radius); x++) {
+            for (int z = Math.max(0, cz - radius); z <= Math.min(d - 1, cz + radius); z++) {
+                int t = trail[x][z];
+                if (t <= 0 || t == b.slot || t >= bySlot.length) continue;
+                GamePlayer o = bySlot[t];
+                if (o == null || o.side == b.side || !o.alive) continue;
+                int dist = Math.abs(x - cx) + Math.abs(z - cz);
+                if (dist < bestD) {
+                    bestD = dist;
+                    best = new int[]{x, z};
+                }
+            }
+        }
+        return best;
+    }
+
+    /** Celda de territorio propio más cercana (distancia Manhattan) dentro del radio, o null. */
+    private int[] nearestOwnCell(GamePlayer b, int cx, int cz, int radius) {
+        int bestD = Integer.MAX_VALUE;
+        int[] best = null;
+        for (int x = Math.max(0, cx - radius); x <= Math.min(w - 1, cx + radius); x++) {
+            for (int z = Math.max(0, cz - radius); z <= Math.min(d - 1, cz + radius); z++) {
+                if (owner[x][z] != b.side + 1) continue;
+                int dist = Math.abs(x - cx) + Math.abs(z - cz);
+                if (dist < bestD) {
+                    bestD = dist;
+                    best = new int[]{x, z};
+                }
+            }
+        }
+        return best;
+    }
+
+    /** Paso voraz hacia un objetivo evitando su propia estela; null si no puede avanzar. */
+    private int[] stepToward(GamePlayer b, int cx, int cz, int tx, int tz) {
+        int ex = tx - cx, ez = tz - cz;
+        int sx = Integer.signum(ex), sz = Integer.signum(ez);
+        int[][] cands = Math.abs(ex) >= Math.abs(ez) ? new int[][]{{sx, 0}, {0, sz}} : new int[][]{{0, sz}, {sx, 0}};
+        for (int[] c : cands) {
+            if (c[0] == 0 && c[1] == 0) continue;
+            if (!botBlocked(b, cx + c[0], cz + c[1])) return c;
+        }
+        return null;
     }
 
     /** Debug: rellena el mapa del jugador hasta el porcentaje indicado (100 = ganar). */
@@ -902,7 +1132,7 @@ public class Game {
                 + " <gray>| kills: <white>" + gp.kills + " <gray>| muertes: <white>" + gp.deaths);
         for (GamePlayer o : players.values()) {
             if (!o.bot) continue;
-            out.add("<gray> - " + o.name + ": <white>" + pct(counts[o.side], w * d) + " <gray>estela " + o.trailCells.size()
+            out.add("<gray> - " + o.name + " <yellow>" + stars(o.level) + "<gray>: <white>" + pct(counts[o.side], w * d) + " <gray>estela " + o.trailCells.size()
                     + (o.alive ? "" : " <red>(muerto)"));
         }
         return out;
