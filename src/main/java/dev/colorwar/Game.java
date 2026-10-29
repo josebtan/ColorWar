@@ -75,6 +75,7 @@ public class Game {
     private final Random rnd = new Random();
     private static final int[][] DIRS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
     private boolean debug;
+    private boolean hasBots;   // partida normal rellenada con bots
     private BukkitTask botTask;
 
     public Game(ColorWarPlugin plugin, Arena arena) {
@@ -136,6 +137,10 @@ public class Game {
     // ------------------------------------------------------------ jugadores
 
     public void addPlayer(Player p) {
+        if (debug && state == State.RUNNING) {
+            joinMidGame(p);
+            return;
+        }
         GamePlayer gp = new GamePlayer(p);
         gp.savedContents = p.getInventory().getContents();
         gp.savedArmor = p.getInventory().getArmorContents();
@@ -156,9 +161,9 @@ public class Game {
         broadcast("<white><n> <gray>se unió <dark_gray>(<white>" + players.size() + "<gray>/<white>" + maxPlayers() + "<dark_gray>)",
                 Msg.p("n", p.getName()));
         if (debug) return;
-        if (state == State.WAITING && players.size() >= arena.minPlayers) {
+        if (state == State.WAITING && canStartCountdown()) {
             startCountdown();
-        } else if (state == State.COUNTDOWN && players.size() >= maxPlayers() && countdown > 5) {
+        } else if (state == State.COUNTDOWN && humanCount() >= maxPlayers() && countdown > 5) {
             countdown = 5;
         }
     }
@@ -182,7 +187,7 @@ public class Game {
         restorePlayer(gp, p);
         if (!silent) broadcast("<white><n> <gray>salió de la partida.", Msg.p("n", gp.name));
 
-        if (state == State.COUNTDOWN && players.size() < arena.minPlayers) {
+        if (state == State.COUNTDOWN && !canStartCountdown()) {
             if (countdownTask != null) {
                 countdownTask.cancel();
                 countdownTask = null;
@@ -224,9 +229,10 @@ public class Game {
 
     private void startCountdown() {
         state = State.COUNTDOWN;
-        countdown = plugin.getConfig().getInt("countdown-seconds", 15);
+        countdown = botsFill() ? plugin.getConfig().getInt("bots.wait-seconds", 30)
+                : plugin.getConfig().getInt("countdown-seconds", 15);
         countdownTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            if (players.size() < arena.minPlayers) {
+            if (!canStartCountdown()) {
                 countdownTask.cancel();
                 countdownTask = null;
                 state = State.WAITING;
@@ -236,6 +242,7 @@ public class Game {
             if (countdown <= 0) {
                 countdownTask.cancel();
                 countdownTask = null;
+                fillBots();
                 start();
                 return;
             }
@@ -243,7 +250,8 @@ public class Game {
                 for (GamePlayer gp : players.values()) {
                     Player p = gp.player();
                     if (p == null) continue;
-                    p.sendActionBar(Msg.parse("<yellow>La partida empieza en <white>" + countdown + "s"));
+                    p.sendActionBar(Msg.parse("<yellow>La partida empieza en <white>" + countdown + "s"
+                            + (botsFill() && players.size() < maxPlayers() ? " <gray>· los puestos libres se rellenan con bots" : "")));
                     if (countdown <= 5) p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1f, 1f);
                 }
             }
@@ -271,7 +279,8 @@ public class Game {
         trail = new int[w][d];
         dirty.clear();
 
-        List<GamePlayer> list = new ArrayList<>(players.values());
+        List<GamePlayer> list = new ArrayList<>();
+        for (GamePlayer gp : players.values()) if (!gp.spectator) list.add(gp);
         Collections.shuffle(list, rnd);
         int n = list.size();
         boolean team = arena.mode == Arena.PlayMode.TEAM;
@@ -306,6 +315,10 @@ public class Game {
         for (int c = 0; c < w * d; c++) dirty.add(c);
 
         bar = BossBar.bossBar(Msg.parse("<gold>ColorWar"), 1f, BossBar.Color.YELLOW, BossBar.Overlay.PROGRESS);
+        for (GamePlayer sp : players.values()) {
+            Player spp = sp.spectator ? sp.player() : null;
+            if (spp != null) spp.showBossBar(bar);
+        }
         int speed = plugin.getConfig().getInt("speed-level", 1);
 
         for (GamePlayer gp : list) {
@@ -339,8 +352,9 @@ public class Game {
 
         renderTask = Bukkit.getScheduler().runTaskTimer(plugin, this::flush, 1L, 1L);
         clockTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tickSecond, 20L, 20L);
-        if (debug) {
-            long delay = Math.max(1, plugin.getConfig().getInt("debug.bot-delay-ticks", 3));
+        if (hasBotPlayers()) {
+            long delay = Math.max(1, plugin.getConfig().getInt("bots.delay-ticks",
+                    plugin.getConfig().getInt("debug.bot-delay-ticks", 3)));
             botTask = Bukkit.getScheduler().runTaskTimer(plugin, this::botTick, 20L, delay);
         }
     }
@@ -542,6 +556,10 @@ public class Game {
         v.deaths++;
         clearTrail(v);
         Player vp = v.player();
+        if (v.bot && killer != null && killer != v) v.revenge = killer;
+        for (GamePlayer o : players.values()) {   // los bots del mismo equipo se ponen en alerta
+            if (o.bot && o != v && o.side == v.side && o.alive) o.alert = 40;
+        }
 
         if (killer != null && killer != v) {
             killer.kills++;
@@ -555,13 +573,21 @@ public class Game {
             broadcast("<white><v> <gray>chocó con su propia estela.", Msg.p("v", v.name));
         }
 
-        if (v.bot) {   // los bots reaparecen para seguir probando
+        if (v.bot) {
             if (v.entity != null && v.entity.isValid()) {
                 world.spawnParticle(Particle.CLOUD, v.entity.getLocation().add(0, 1, 0), 25, 0.3, 0.5, 0.3, 0.03);
             }
             removeBotEntity(v);
-            if (arena.mode == Arena.PlayMode.SOLO) clearSide(v.side);
-            Bukkit.getScheduler().runTaskLater(plugin, () -> botRespawn(v), 60L);
+            boolean revive = debug || (arena.mode == Arena.PlayMode.TEAM && plugin.getConfig().getBoolean("team-respawn", false));
+            if (revive) {   // debug: reaparecen para seguir probando
+                if (arena.mode == Arena.PlayMode.SOLO) clearSide(v.side);
+                Bukkit.getScheduler().runTaskLater(plugin, () -> botRespawn(v), 60L);
+            } else {        // partida normal: queda eliminado como un jugador
+                v.eliminated = true;
+                markOut(v);
+                if (arena.mode == Arena.PlayMode.SOLO) clearSide(v.side);
+                checkEnd();
+            }
             return;
         }
         boolean respawn = arena.mode == Arena.PlayMode.TEAM && plugin.getConfig().getBoolean("team-respawn", false);
@@ -636,10 +662,142 @@ public class Game {
     private void checkEnd() {
         if (debug || state != State.RUNNING || sideCount < 2) return;
         Set<Integer> active = new HashSet<>();
+        boolean humanActive = false;
         for (GamePlayer gp : players.values()) {
-            if (!gp.left && !gp.eliminated) active.add(gp.side);
+            if (gp.spectator || gp.left || gp.eliminated) continue;
+            active.add(gp.side);
+            if (!gp.bot) humanActive = true;
         }
-        if (active.size() <= 1) end();
+        // Sin humanos activos no tiene sentido seguir: los bots no se juegan solos en partidas normales
+        if (active.size() <= 1 || (hasBots && !humanActive)) end();
+    }
+
+    // ----------------------------------------------- bots de relleno y debug
+    private boolean botsFill() {
+        return !debug && plugin.getConfig().getBoolean("bots.enabled", true);
+    }
+
+    /** Con bots activados basta un humano para iniciar la espera; sin bots hace falta el mínimo de jugadores. */
+    private boolean canStartCountdown() {
+        return botsFill() ? humanCount() >= 1 : players.size() >= arena.minPlayers;
+    }
+
+    private boolean hasBotPlayers() {
+        for (GamePlayer gp : players.values()) if (gp.bot) return true;
+        return false;
+    }
+
+    private boolean nameTaken(String nm) {
+        for (GamePlayer o : players.values()) if (o.name.equalsIgnoreCase(nm)) return true;
+        return false;
+    }
+
+    /** Al terminar la espera, los puestos libres se rellenan con bots (una sola vez, antes de empezar). */
+    private void fillBots() {
+        if (!botsFill()) return;
+        boolean toMin = "min".equalsIgnoreCase(plugin.getConfig().getString("bots.fill-to", "max"));
+        int target = Math.min(maxPlayers(), toMin ? Math.max(arena.minPlayers, 2) : maxPlayers());
+        int fixed = plugin.getConfig().getInt("bots.fill-level", 0);
+        List<String> pool = new ArrayList<>(plugin.getConfig().getStringList("bots.names"));
+        Collections.shuffle(pool, rnd);
+        while (players.size() < target) {
+            String name = null;
+            for (String nm : pool) {
+                if (!nameTaken(nm)) {
+                    name = nm;
+                    break;
+                }
+            }
+            if (name == null) name = nextBotName();
+            int lv = fixed >= 1 ? Math.min(3, fixed) : 1 + rnd.nextInt(3);
+            addPreBot(name, lv);
+            hasBots = true;
+        }
+        if (hasBots) broadcast("<gray>Se añadieron <white>" + (players.size() - humanCount()) + "<gray> bots para completar la partida.");
+    }
+
+    /** Debug: observar sin participar (útil con partidas solo de bots). */
+    public void addSpectator(Player p) {
+        GamePlayer gp = new GamePlayer(p);
+        gp.savedContents = p.getInventory().getContents();
+        gp.savedArmor = p.getInventory().getArmorContents();
+        gp.savedMode = p.getGameMode();
+        gp.savedLoc = p.getLocation();
+        gp.savedFood = p.getFoodLevel();
+        gp.spectator = true;
+        gp.alive = false;
+        players.put(p.getUniqueId(), gp);
+        plugin.games().register(p.getUniqueId(), this);
+        p.getInventory().clear();
+        p.getInventory().setArmorContents(new ItemStack[4]);
+        p.setGameMode(GameMode.SPECTATOR);
+        p.teleport(arena.centerTop().add(0, 14, 0));
+        if (bar != null) p.showBossBar(bar);
+        Msg.send(p, "<gray>Estás observando la partida. Usa <white>/cw leave</white> para salir.");
+    }
+
+    /** Debug: un jugador entra con la partida ya en marcha (como un lado nuevo o en el equipo con menos miembros). */
+    private void joinMidGame(Player p) {
+        boolean team = arena.mode == Arena.PlayMode.TEAM;
+        int side;
+        if (team) {
+            int[] members = new int[sideCount];
+            for (GamePlayer o : players.values()) {
+                if (o.side >= 0 && !o.left && !o.eliminated) members[o.side]++;
+            }
+            side = 0;
+            for (int i = 1; i < sideCount; i++) if (members[i] < members[side]) side = i;
+        } else {
+            if (sideCount >= Colors.PALETTE.size()) {
+                Msg.send(p, "<red>No caben más jugadores (máximo " + Colors.PALETTE.size() + " colores).");
+                return;
+            }
+            side = sideCount++;
+            sideColor = Arrays.copyOf(sideColor, sideCount);
+            sideName = Arrays.copyOf(sideName, sideCount);
+            sideOut = Arrays.copyOf(sideOut, sideCount);
+            sideOutAt = Arrays.copyOf(sideOutAt, sideCount);
+            sideColor[side] = Colors.PALETTE.get(side);
+            sideName[side] = p.getName();
+        }
+        GamePlayer gp = new GamePlayer(p);
+        gp.savedContents = p.getInventory().getContents();
+        gp.savedArmor = p.getInventory().getArmorContents();
+        gp.savedMode = p.getGameMode();
+        gp.savedLoc = p.getLocation();
+        gp.savedFood = p.getFoodLevel();
+        gp.side = side;
+        gp.alive = true;
+        gp.slot = bySlot.length;
+        bySlot = Arrays.copyOf(bySlot, bySlot.length + 1);
+        bySlot[gp.slot] = gp;
+        sideOut[side] = false;
+        players.put(p.getUniqueId(), gp);
+        plugin.games().register(p.getUniqueId(), this);
+
+        int[] cell = team ? randomOwnedCell(side) : null;
+        if (cell == null) {
+            cell = chooseStarts(1).get(0);
+            claimSquare(side, cell[0], cell[1], plugin.getConfig().getInt("start-radius", 2));
+        }
+        gp.lastCell = cell[0] * d + cell[1];
+        p.getInventory().clear();
+        p.getInventory().setArmorContents(new ItemStack[4]);
+        p.setGameMode(GameMode.ADVENTURE);
+        p.setFoodLevel(20);
+        p.getInventory().setItem(8, leaveItem());
+        p.teleport(cellLocation(gp.lastCell, yawToCenter(cell[0], cell[1])));
+        int speed = plugin.getConfig().getInt("speed-level", 1);
+        if (speed > 0) {
+            p.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, PotionEffect.INFINITE_DURATION,
+                    speed - 1, false, false, false));
+        }
+        gp.board = Bukkit.getScoreboardManager().getNewScoreboard();
+        gp.obj = gp.board.registerNewObjective("cw", Criteria.DUMMY, Msg.parse("<gold><bold>ColorWar"));
+        gp.obj.setDisplaySlot(DisplaySlot.SIDEBAR);
+        p.setScoreboard(gp.board);
+        if (bar != null) p.showBossBar(bar);
+        broadcast("<white><n> <gray>se unió a la partida de prueba.", Msg.p("n", p.getName()));
     }
 
     // ------------------------------------------------------------ debug
@@ -756,7 +914,7 @@ public class Game {
             o.level = lv;
             o.phase = 0;
             o.returning = false;
-            if (o.entity != null && o.side >= 0) BotEntities.label(o.entity, o.name, stars(lv), sideColor[o.side]);
+            if (o.entity != null && o.side >= 0) BotEntities.label(o.entity, o.name, debug ? stars(lv) : "[Bot]", sideColor[o.side]);
             n++;
         }
         return n == 0 ? "No hay ningún bot llamado " + target + "." : null;
@@ -788,6 +946,9 @@ public class Game {
         b.phase = 0;
         b.legSteps = 0;
         b.skip = false;
+        b.huntSlot = 0;
+        b.boxSet = false;
+        b.mode = 0;
     }
 
     private void botRespawn(GamePlayer b) {
@@ -805,7 +966,7 @@ public class Game {
 
     private void spawnBotEntity(GamePlayer b) {
         if (b.lastCell < 0 || b.side < 0) return;
-        b.entity = BotEntities.spawn(cellLocation(b.lastCell, 0f), b.name, stars(b.level), sideColor[b.side]);
+        b.entity = BotEntities.spawn(cellLocation(b.lastCell, 0f), b.name, debug ? stars(b.level) : "[Bot]", sideColor[b.side]);
     }
 
     private void removeBotEntity(GamePlayer b) {
@@ -884,7 +1045,8 @@ public class Game {
 
     private int[] botDecide(GamePlayer b, int cx, int cz) {
         if (b.level <= 1) return decideWander(b, cx, cz);
-        boolean hard = b.level >= 3;
+        if (b.level >= 3) return decideExpert(b, cx, cz);
+        boolean hard = false;
         int tl = b.trailCells.size();
         boolean inHome = owner[cx][cz] == b.side + 1;
         if (inHome && tl == 0 && b.phase >= PH_LEG2) b.phase = PH_IDLE;
@@ -910,11 +1072,17 @@ public class Game {
             }
         }
 
+        return runPlan(b, cx, cz, tl, false);
+    }
+
+    /** Ejecuta el plan de bucle: salida, lado, vuelta paralela y regreso. */
+    private int[] runPlan(GamePlayer b, int cx, int cz, int tl, boolean expert) {
         // Plan: bucle rectangular (salida, lado, vuelta paralela, regreso)
         for (int guard = 0; guard < 6; guard++) {
             switch (b.phase) {
                 case PH_IDLE -> {
-                    planLoop(b, cx, cz, hard);
+                    if (expert) planExpert(b, cx, cz);
+                    else planLoop(b, cx, cz, false);
                     if (b.phase == PH_IDLE) return botRandomDir(b, cx, cz);
                 }
                 case PH_LEG1 -> {
@@ -959,6 +1127,240 @@ public class Game {
             }
         }
         return botRandomDir(b, cx, cz);
+    }
+
+    // ============================================================ NIVEL 3: ESTRATEGIA
+    // Modos: EXPAND (crecer con bucles eficientes), RAID (robar terreno enemigo y cazar estelas),
+    // TURTLE (si va ganando y queda poco tiempo: bucles pequeños y seguros).
+    // En equipos: reparto de roles (los bots impares atacan), cada estela enemiga la persigue un solo
+    // bot, los bucles no se solapan entre compañeros y la muerte de un aliado pone en alerta al equipo.
+    private static final int MODE_EXPAND = 0, MODE_RAID = 1, MODE_TURTLE = 2;
+
+    private static String modeName(int m) {
+        return switch (m) {
+            case MODE_RAID -> "ataque";
+            case MODE_TURTLE -> "defensa";
+            default -> "expansión";
+        };
+    }
+
+    private int[] decideExpert(GamePlayer b, int cx, int cz) {
+        if (b.alert > 0) b.alert--;
+        int tl = b.trailCells.size();
+        boolean inHome = owner[cx][cz] == b.side + 1;
+        if (inHome && tl == 0 && b.phase >= PH_LEG2) b.phase = PH_IDLE;
+        if (tl > 0 && b.phase == PH_IDLE) b.phase = PH_RETURN;
+        if (b.phase == PH_IDLE) {
+            b.boxSet = false;
+            b.huntSlot = 0;
+        }
+
+        // 1) Seguridad: si algún tramo de la estela puede ser cortado antes de cerrar el bucle, volver
+        if (tl > 0 && b.phase != PH_RETURN && exposed(b, cx, cz)) b.phase = PH_RETURN;
+
+        // 2) Ataque coordinado sobre estelas enemigas
+        int atkMax = b.mode == MODE_TURTLE ? 0 : (b.mode == MODE_RAID ? 16 : 12);
+        if (b.phase == PH_CHASE && tl > atkMax) b.phase = PH_RETURN;
+        if (b.phase != PH_RETURN && atkMax > 0 && tl <= atkMax) {
+            int[] tgt = pickHuntTarget(b, cx, cz, b.mode == MODE_RAID ? 18 : 14);
+            if (tgt != null) {
+                int[] st = stepToward(b, cx, cz, tgt[0], tgt[1]);
+                if (st != null) {
+                    b.phase = PH_CHASE;
+                    b.huntSlot = trail[tgt[0]][tgt[1]];
+                    return st;
+                }
+            } else if (b.phase == PH_CHASE) {
+                b.phase = tl > 0 ? PH_RETURN : PH_IDLE;
+                b.huntSlot = 0;
+            }
+        }
+        return runPlan(b, cx, cz, tl, true);
+    }
+
+    /** ¿Puede algún enemigo llegar a una celda de mi estela antes de que yo cierre el bucle? */
+    private boolean exposed(GamePlayer b, int cx, int cz) {
+        int[] home = nearestOwnCell(b, cx, cz, 40);
+        int distHome = home == null ? 12 : Math.abs(home[0] - cx) + Math.abs(home[1] - cz);
+        int margin = (b.mode == MODE_RAID ? -2 : 0) + (b.mode == MODE_TURTLE ? 1 : 0) + (b.alert > 0 ? 2 : 0);
+        for (GamePlayer o : players.values()) {
+            if (o == b || o.side == b.side || !o.alive || o.eliminated || o.left || o.lastCell < 0) continue;
+            int ox = o.lastCell / d, oz = o.lastCell % d;
+            for (int c : b.trailCells) {
+                if (Math.abs(ox - c / d) + Math.abs(oz - c % d) <= distHome + margin) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Estela enemiga a perseguir: la más cercana, con prioridad a quien me eliminó y sin duplicar a un aliado. */
+    private int[] pickHuntTarget(GamePlayer b, int cx, int cz, int radius) {
+        double bestScore = Double.MAX_VALUE;
+        int[] best = null;
+        for (int x = Math.max(0, cx - radius); x <= Math.min(w - 1, cx + radius); x++) {
+            for (int z = Math.max(0, cz - radius); z <= Math.min(d - 1, cz + radius); z++) {
+                int t = trail[x][z];
+                if (t <= 0 || t == b.slot || t >= bySlot.length) continue;
+                GamePlayer o = bySlot[t];
+                if (o == null || o.side == b.side || !o.alive) continue;
+                int dist = Math.abs(x - cx) + Math.abs(z - cz);
+                boolean taken = false;
+                for (GamePlayer m : players.values()) {
+                    if (m == b || !m.bot || m.side != b.side || !m.alive || m.huntSlot != t || m.lastCell < 0) continue;
+                    if (Math.abs(m.lastCell / d - x) + Math.abs(m.lastCell % d - z) <= dist) {
+                        taken = true;
+                        break;
+                    }
+                }
+                if (taken) continue;
+                double score = dist - (o == b.revenge ? 8 : 0);
+                if (score < bestScore) {
+                    bestScore = score;
+                    best = new int[]{x, z};
+                }
+            }
+        }
+        return best;
+    }
+
+    private int pickMode(GamePlayer b, int[] cs) {
+        int total = w * d, mine = cs[b.side], bestOther = 0;
+        for (int s = 0; s < sideCount; s++) {
+            if (s != b.side && !sideOut[s]) bestOther = Math.max(bestOther, cs[s]);
+        }
+        double timeFrac = arena.duration <= 0 ? 1 : Math.max(0, timeLeft) / (double) arena.duration;
+        boolean leading = mine > bestOther;
+        double lead = (mine - bestOther) * 100.0 / total;
+        if (leading && lead >= 3 && timeFrac < 0.35) return MODE_TURTLE;
+        if (arena.mode == Arena.PlayMode.TEAM) {
+            int idx = 0, my = 0;
+            for (GamePlayer o : players.values()) {
+                if (o.bot && o.side == b.side) {
+                    if (o == b) my = idx;
+                    idx++;
+                }
+            }
+            return (my % 2 == 1 || (!leading && timeFrac < 0.5)) ? MODE_RAID : MODE_EXPAND;
+        }
+        if (!leading && timeFrac < 0.5) return MODE_RAID;
+        return rnd.nextInt(100) < 25 ? MODE_RAID : MODE_EXPAND;
+    }
+
+    private int[] centroid(int side) {
+        long sx = 0, sz = 0, n = 0;
+        for (int x = 0; x < w; x++) {
+            for (int z = 0; z < d; z++) {
+                if (owner[x][z] == side + 1) {
+                    sx += x;
+                    sz += z;
+                    n++;
+                }
+            }
+        }
+        return n == 0 ? null : new int[]{(int) (sx / n), (int) (sz / n)};
+    }
+
+    /** Territorio enemigo a atacar: en solitario el del líder; en equipos el del rival más cercano. */
+    private int[] raidTarget(GamePlayer b, int[] cs) {
+        int best = -1;
+        double bestV = Double.MAX_VALUE;
+        for (int s = 0; s < sideCount; s++) {
+            if (s == b.side || sideOut[s] || cs[s] == 0) continue;
+            double v;
+            if (arena.mode == Arena.PlayMode.TEAM) {
+                int[] c = centroid(s);
+                v = c == null ? Double.MAX_VALUE : Math.abs(c[0] - b.homeX) + Math.abs(c[1] - b.homeZ);
+            } else {
+                v = -cs[s];
+            }
+            if (v < bestV) {
+                bestV = v;
+                best = s;
+            }
+        }
+        return best < 0 ? null : centroid(best);
+    }
+
+    /** Evalúa bucles rectangulares candidatos (valor del terreno / coste, menos riesgo y solapes) y elige el mejor. */
+    private void planExpert(GamePlayer b, int cx, int cz) {
+        int[] cs = counts();
+        b.mode = pickMode(b, cs);
+        b.boxSet = false;
+        int[] target = b.mode == MODE_RAID ? raidTarget(b, cs) : null;
+        int mine = b.side + 1;
+        int[] lens1 = b.mode == MODE_TURTLE ? new int[]{3, 4} : new int[]{5, 8, 11, 14};
+        int[] lens2 = b.mode == MODE_TURTLE ? new int[]{2, 3} : new int[]{4, 7, 10};
+        double bestScore = -1e9;
+        int[] bd1 = null, bd2 = null, bbox = null;
+        int bl1 = 0, bl2 = 0;
+        for (int[] d1 : DIRS) {
+            int e = 0, ex = cx, ez = cz;
+            while (true) {   // primer paso fuera de mi territorio en esta dirección
+                ex += d1[0];
+                ez += d1[1];
+                e++;
+                if (ex < 0 || ez < 0 || ex >= w || ez >= d || e > 45) {
+                    e = -1;
+                    break;
+                }
+                if (owner[ex][ez] != mine) break;
+            }
+            if (e < 0 || trail[ex][ez] == b.slot) continue;
+            for (int[] d2 : new int[][]{{-d1[1], d1[0]}, {d1[1], -d1[0]}}) {
+                for (int l1 : lens1) {
+                    for (int l2 : lens2) {
+                        int x1 = ex + d1[0] * (l1 - 1) + d2[0] * (l2 - 1);
+                        int z1 = ez + d1[1] * (l1 - 1) + d2[1] * (l2 - 1);
+                        int bx0 = Math.min(ex, x1), bx1 = Math.max(ex, x1), bz0 = Math.min(ez, z1), bz1 = Math.max(ez, z1);
+                        if (bx0 < 0 || bz0 < 0 || bx1 >= w || bz1 >= d) continue;
+                        double value = 0;
+                        for (int x = bx0; x <= bx1; x++) {
+                            for (int z = bz0; z <= bz1; z++) {
+                                int o = owner[x][z];
+                                if (o == mine) continue;
+                                value += o == 0 ? 2 : (b.mode == MODE_RAID ? 5 : 3);
+                            }
+                        }
+                        double score = value / (2.0 * l1 + l2 + e);
+                        int mx = (bx0 + bx1) / 2, mz = (bz0 + bz1) / 2;
+                        double risk = 0;
+                        for (GamePlayer o : players.values()) {
+                            if (o == b || o.side == b.side || !o.alive || o.eliminated || o.left || o.lastCell < 0) continue;
+                            int dist = Math.abs(o.lastCell / d - mx) + Math.abs(o.lastCell % d - mz);
+                            if (dist < 12) risk += (12 - dist) * (b.mode == MODE_TURTLE ? 0.5 : 0.18);
+                        }
+                        score -= risk;
+                        if (target != null) score += Math.max(0, 40 - (Math.abs(mx - target[0]) + Math.abs(mz - target[1]))) * 0.05;
+                        for (GamePlayer o : players.values()) {   // no pisarse con la caja de un compañero
+                            if (o == b || !o.bot || o.side != b.side || !o.boxSet) continue;
+                            int ox = Math.max(0, Math.min(bx1, o.box[1]) - Math.max(bx0, o.box[0]) + 1);
+                            int oz = Math.max(0, Math.min(bz1, o.box[3]) - Math.max(bz0, o.box[2]) + 1);
+                            score -= ox * oz * 0.15;
+                        }
+                        score += rnd.nextDouble() * 0.3;
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bd1 = d1;
+                            bd2 = d2;
+                            bl1 = l1;
+                            bl2 = l2;
+                            bbox = new int[]{bx0, bx1, bz0, bz1};
+                        }
+                    }
+                }
+            }
+        }
+        if (bd1 == null) return;   // sin candidatos: se queda en IDLE y dará un paso al azar
+        b.d1x = bd1[0];
+        b.d1z = bd1[1];
+        b.d2x = bd2[0];
+        b.d2z = bd2[1];
+        b.len1 = bl1;
+        b.len2 = bl2;
+        b.legSteps = 0;
+        System.arraycopy(bbox, 0, b.box, 0, 4);
+        b.boxSet = true;
+        b.phase = PH_LEG1;
     }
 
     /** Nivel 1: línea recta con giros al azar; al llegar a su límite de estela vuelve hacia su base. */
@@ -1090,7 +1492,7 @@ public class Game {
     /** Debug: rellena el mapa del jugador hasta el porcentaje indicado (100 = ganar). */
     public boolean debugFill(Player p, double pct) {
         GamePlayer gp = players.get(p.getUniqueId());
-        if (state != State.RUNNING || gp == null) return false;
+        if (state != State.RUNNING || gp == null || gp.side < 0) return false;
         int id = gp.side + 1;
         int target = (int) Math.ceil(w * d * Math.max(0, Math.min(100, pct)) / 100.0);
         int have = 0;
@@ -1112,7 +1514,7 @@ public class Game {
 
     public boolean debugKill(Player p) {
         GamePlayer gp = players.get(p.getUniqueId());
-        if (state != State.RUNNING || gp == null) return false;
+        if (state != State.RUNNING || gp == null || gp.side < 0) return false;
         kill(gp, null);
         return true;
     }
@@ -1132,7 +1534,7 @@ public class Game {
                 + " <gray>| kills: <white>" + gp.kills + " <gray>| muertes: <white>" + gp.deaths);
         for (GamePlayer o : players.values()) {
             if (!o.bot) continue;
-            out.add("<gray> - " + o.name + " <yellow>" + stars(o.level) + "<gray>: <white>" + pct(counts[o.side], w * d) + " <gray>estela " + o.trailCells.size()
+            out.add("<gray> - " + o.name + " <yellow>" + stars(o.level) + "<gray>: <white>" + pct(counts[o.side], w * d) + " <gray>estela " + o.trailCells.size() + (o.level >= 3 ? " <gray>modo " + modeName(o.mode) : "")
                     + (o.alive ? "" : " <red>(muerto)"));
         }
         return out;
@@ -1277,7 +1679,7 @@ public class Game {
         int place = rank[gp.side];
         boolean win = place == 1;
         Player p = gp.player();
-        if (!gp.bot && !debug) {
+        if (!gp.bot && !debug && (!hasBots || plugin.getConfig().getBoolean("bots.stats-with-bots", true))) {
             StatsManager.PlayerStats st = plugin.stats().get(gp.id, gp.name);
             st.games++;
             st.kills += gp.kills;

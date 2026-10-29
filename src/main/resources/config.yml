@@ -35,6 +35,17 @@ rewards:
     coins: 5
     commands: []
 
+# Bots en partidas normales: al entrar el primer jugador empieza una espera para que se unan más;
+# al terminar, los puestos libres se rellenan con bots (solo una vez, al empezar).
+bots:
+  enabled: true          # false = hace falta el mínimo de jugadores de la arena
+  wait-seconds: 30       # espera desde que entra el primer jugador (se acorta a 5 s si se llena)
+  fill-to: max           # max = hasta el máximo de la arena | min = solo hasta el mínimo
+  fill-level: 0          # 0 = nivel aleatorio (1-3) | 1, 2 o 3 = nivel fijo
+  delay-ticks: 3         # velocidad de los bots (menos = más rápidos)
+  stats-with-bots: true  # false = las partidas con bots no dan estadísticas ni premios
+  names: [Alex, Bruno, Carla, Diego, Elena, Facu, Gabi, Hugo, Irene, Jorge, Kira, Lucas]
+
 # Modo debug (/cw debug [arena] [bots]): partida de prueba en solitario
 debug:
   default-bots: 2        # bots que se añaden por defecto

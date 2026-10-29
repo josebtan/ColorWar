@@ -56,3 +56,23 @@ También hay un botón "Probar en solitario" en `/cw admin` → arena.
 - **3 Difícil ★★★**: bucles más grandes hacia donde hay más terreno (prefiere el enemigo), detecta
   amenazas desde más lejos y persigue estelas enemigas a mayor distancia.
 Nivel por defecto: `debug.default-level` en config.yml.
+
+## Partidas normales con bots
+Al entrar el primer jugador empieza una espera (`bots.wait-seconds`, 30 s) para que se unan más. Al terminar,
+los puestos libres se rellenan con bots **una sola vez, al empezar** (`bots.fill-to: max|min`, nivel aleatorio
+o fijo con `bots.fill-level`). Los bots aparecen como jugadores con el cartel [Bot]; si mueren, quedan
+eliminados como cualquiera. Si todos los humanos caen, la partida termina. Se desactivan con `bots.enabled: false`
+(entonces hace falta el mínimo de jugadores de la arena) y `bots.stats-with-bots: false` hace que esas partidas
+no den estadísticas ni premios.
+
+## Debug solo con bots o con jugadores
+- `/cw debug [arena] [bots]`: participas tú con bots. Otros jugadores pueden unirse con `/cw join [arena]` aunque ya haya empezado.
+- `/cw debug watch [arena] [bots] [nivel]`: partida solo de bots; tú observas en modo espectador (otros pueden entrar con `/cw join`).
+- Nunca cuentan puntos, estadísticas ni premios.
+
+## IA nivel 3 (estratégica)
+Evalúa bucles rectangulares candidatos (valor del terreno / coste, menos riesgo y solapes), calcula si un enemigo
+puede cortar su estela antes de que cierre el bucle y adapta su modo: **expansión**, **ataque** (roba territorio del
+líder o del rival más cercano y caza estelas) o **defensa** (si va ganando y queda poco tiempo, bucles pequeños y seguros).
+Recuerda quién lo eliminó y lo persigue. En equipos reparte roles (los bots impares atacan), solo un bot persigue cada
+estela enemiga, evita solapar sus bucles con los de compañeros y se pone en alerta cuando cae un aliado.

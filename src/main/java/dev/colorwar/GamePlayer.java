@@ -23,6 +23,11 @@ public class GamePlayer {
     public int level = 2;                      // inteligencia: 1 fácil, 2 normal, 3 difícil
     public int phase, legSteps, len1, len2, d1x, d1z, d2x, d2z;
     public boolean skip;
+    public boolean spectator;                  // humano que solo observa (modo debug)
+    public int mode, alert, huntSlot;          // estrategia (nivel 3), alerta tras muerte de un aliado, estela que persigue
+    public GamePlayer revenge;                 // quien lo eliminó: lo perseguirá con prioridad
+    public final int[] box = new int[4];       // caja del bucle planificado: xmin, xmax, zmin, zmax
+    public boolean boxSet;
     public int dirX, dirZ, limit, homeX, homeZ;
     public int side = -1;
     public int slot = 0;

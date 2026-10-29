@@ -35,16 +35,22 @@ public class GameManager {
             g = new Game(plugin, a);
             games.put(a.name.toLowerCase(), g);
         }
-        if (g.state != Game.State.WAITING && g.state != Game.State.COUNTDOWN) {
+        boolean debugOpen = g.isDebug() && g.state == Game.State.RUNNING;   // las de debug admiten entrada tardía
+        if (g.state != Game.State.WAITING && g.state != Game.State.COUNTDOWN && !debugOpen) {
             return "La partida ya está en curso o reiniciándose.";
         }
-        if (g.playerCount() >= g.maxPlayers()) return "La arena está llena.";
+        if (!debugOpen && g.playerCount() >= g.maxPlayers()) return "La arena está llena.";
         g.addPlayer(p);
         return null;
     }
 
     /** Partida de prueba en solitario: sin cuenta atrás, con bots, sin estadísticas ni premios. */
     public String joinDebug(Player p, Arena a, int bots, java.util.List<Game.BotSpec> specs, int level) {
+        return joinDebug(p, a, bots, specs, level, false);
+    }
+
+    /** watch = true: partida solo de bots; quien la inicia la observa sin participar. */
+    public String joinDebug(Player p, Arena a, int bots, java.util.List<Game.BotSpec> specs, int level, boolean watch) {
         if (byPlayer.containsKey(p.getUniqueId())) return "Ya estás en una partida. Usa /cw leave.";
         if (!a.isReady()) return "Esa arena no está disponible.";
         if (games.containsKey(a.name.toLowerCase())) {
@@ -53,8 +59,11 @@ public class GameManager {
         Game g = new Game(plugin, a);
         g.setDebug(true);
         games.put(a.name.toLowerCase(), g);
-        g.addPlayer(p);
-        g.addBots(Math.max(0, bots), specs, level);
+        if (watch) g.addSpectator(p);
+        else g.addPlayer(p);
+        int count = Math.max(0, bots);
+        if (watch && (specs == null || specs.isEmpty())) count = Math.max(2, count);
+        g.addBots(count, specs, level);
         g.forceStart();
         return null;
     }
