@@ -249,7 +249,7 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                 Player p = player(s);
                 if (p == null) return true;
                 if (a.length < 3) {
-                    Msg.send(s, "<red>Uso: /cw create [nombre] [solo|team]");
+                    Msg.send(s, "<red>Uso: /cw create [nombre] [solo|team] (máx jugadores) (mín jugadores) (equipos)");
                     return true;
                 }
                 if (!NAME.matcher(a[1]).matches()) {
@@ -265,6 +265,28 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                     Msg.send(s, "<red>Tipo no válido. Usa <white>solo</white> o <white>team</white>.");
                     return true;
                 }
+                int maxP = 8, minP = 2, teams = 2;
+                try {
+                    if (a.length > 3) maxP = Integer.parseInt(a[3]);
+                    if (a.length > 4) minP = Integer.parseInt(a[4]);
+                    if (a.length > 5) teams = Integer.parseInt(a[5]);
+                } catch (NumberFormatException ex) {
+                    Msg.send(s, "<red>Los jugadores y los equipos deben ser números.");
+                    return true;
+                }
+                if (maxP < 2 || maxP > Colors.PALETTE.size()) {
+                    Msg.send(s, "<red>El máximo de jugadores debe estar entre 2 y " + Colors.PALETTE.size() + ".");
+                    return true;
+                }
+                if (a.length <= 4) minP = Math.min(minP, maxP);
+                if (minP < 1 || minP > maxP) {
+                    Msg.send(s, "<red>El mínimo debe estar entre 1 y el máximo (" + maxP + ").");
+                    return true;
+                }
+                if (teams < 2 || teams > 8) {
+                    Msg.send(s, "<red>Los equipos deben ser entre 2 y 8.");
+                    return true;
+                }
                 Selection sel = plugin.selections().get(p.getUniqueId());
                 String err = sel == null ? "Primero marca el área con el hacha de madera (usa /cw wand)." : sel.problem();
                 if (err != null) {
@@ -274,9 +296,13 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                 Arena ar = new Arena(a[1]);
                 sel.applyTo(ar);
                 ar.mode = mode;
+                ar.maxPlayers = maxP;
+                ar.minPlayers = minP;
+                ar.teams = Math.min(teams, maxP);
                 plugin.arenas().add(ar);
                 Msg.send(s, "<green>Arena <white>" + ar.name + "<green> creada (" + ar.width() + "x" + ar.depth()
-                        + ", modo " + (mode == Arena.PlayMode.SOLO ? "solo" : "equipos") + "). "
+                        + ", modo " + (mode == Arena.PlayMode.SOLO ? "solo" : "equipos (" + ar.teams + ")")
+                        + ", " + minP + "-" + maxP + " jugadores). "
                         + "<gray>Construyendo suelo y bordes...");
                 final String arenaName = ar.name;
                 ArenaBuilder.build(plugin, ar, () -> {
@@ -513,6 +539,12 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
             for (Arena ar : plugin.arenas().all()) out.add(ar.name);
         } else if (a.length == 3 && a[0].equalsIgnoreCase("create")) {
             out.addAll(List.of("solo", "team"));
+        } else if (a.length == 4 && a[0].equalsIgnoreCase("create")) {
+            out.addAll(List.of("4", "8", "12"));
+        } else if (a.length == 5 && a[0].equalsIgnoreCase("create")) {
+            out.addAll(List.of("1", "2", "4"));
+        } else if (a.length == 6 && a[0].equalsIgnoreCase("create")) {
+            out.addAll(List.of("2", "3", "4"));
         } else if (a.length == 3 && a[0].equalsIgnoreCase("set")) {
             out.addAll(SET_KEYS);
         } else if (a.length == 4 && a[0].equalsIgnoreCase("set")) {

@@ -14,7 +14,7 @@ En pom.xml cambia `paper.version` y `java.version` a los de tu servidor
 2. `/cw wand` te da un hacha de madera (o usa cualquiera).
 3. Clic izquierdo en una esquina del suelo = pos1, clic derecho en la esquina opuesta = pos2.
    Los dos puntos deben estar a la misma altura. `/cw sel` muestra el estado de la selección.
-4. `/cw create [nombre] [solo|team]` crea la arena si el área es válida y construye el suelo (base-block)
+4. `/cw create [nombre] [solo|team] (máx) (mín) (equipos)` crea la arena (por defecto 8 máx, 2 mín, 2 equipos; ej. `/cw create mapa1 team 12 4 3`) si el área es válida y construye el suelo (base-block)
    y un borde visible alrededor (border-block / border-height en config.yml).
 5. Opcional: `/cw setlobby [arena]`, `/cw setmainlobby`, `/cw addspawn [arena]` y
    `/cw set [arena] spawnmode defined`, `/cw set [arena] min|max|time|teams [n]`.
