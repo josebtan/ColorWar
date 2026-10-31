@@ -11,6 +11,11 @@ public class MenuListener implements Listener {
         if (!(e.getInventory().getHolder() instanceof Menu menu)) return;
         e.setCancelled(true);
         if (e.getClickedInventory() == null || e.getClickedInventory() != e.getInventory()) return;
+        if (menu.adminOnly() && e.getWhoClicked() instanceof org.bukkit.entity.Player p && !p.hasPermission("colorwar.admin")) {
+            p.closeInventory();
+            Msg.send(p, "<red>No tienes permiso.");
+            return;
+        }
         menu.handleClick(e);
     }
 

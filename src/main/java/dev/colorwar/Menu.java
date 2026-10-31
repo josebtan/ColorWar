@@ -28,6 +28,11 @@ public abstract class Menu implements InventoryHolder {
 
     protected abstract void build(Player viewer);
 
+    /** Los menús de administración se cierran en cuanto el jugador pierde el permiso. */
+    public boolean adminOnly() {
+        return false;
+    }
+
     public void open(Player p) {
         refresh(p);
         p.openInventory(inv);

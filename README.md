@@ -24,7 +24,7 @@ En pom.xml cambia `paper.version` y `java.version` a los de tu servidor
 /cw (menú), /cw join <arena>, /cw leave, /cw list, /cw top, /cw stats
 
 ## Permisos
-Los comandos de jugador no necesitan permiso. Solo `colorwar.admin` (op por defecto) da acceso a la administración y al botón del menú.
+Los comandos de jugador no necesitan permiso (`/cw perm` muestra si tienes `colorwar.admin` y quién te lo concede). Solo `colorwar.admin` (op por defecto) da acceso a la administración y al botón del menú.
 
 Recompensas y ajustes: config.yml. Datos: arenas.yml y stats.yml.
 

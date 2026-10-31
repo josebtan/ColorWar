@@ -7,6 +7,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
+import org.bukkit.permissions.PermissionAttachmentInfo;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,7 +17,7 @@ import java.util.regex.Pattern;
 public class ColorWarCommand implements CommandExecutor, TabCompleter {
     private static final Pattern BOT_NAME = Pattern.compile("[A-Za-z0-9_]{1,16}");
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_-]{1,16}");
-    private static final List<String> PLAYER_SUBS = List.of("menu", "join", "leave", "list", "top", "stats");
+    private static final List<String> PLAYER_SUBS = List.of("menu", "join", "leave", "list", "top", "stats", "perm");
     private static final List<String> ADMIN_SUBS = List.of("admin", "placeholders", "debug", "create", "delete", "wand", "pos1", "pos2", "sel", "resize", "addspawn",
             "clearspawns", "setlobby", "setmainlobby", "set", "info", "forcestart", "forcestop", "reload");
     private static final List<String> SET_KEYS = List.of("mode", "spawnmode", "min", "max", "time", "teams", "enabled");
@@ -84,6 +85,20 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                     } catch (IllegalArgumentException ignored) { }
                 }
                 new Menus.Top(plugin, cat).open(p);
+            }
+            case "perm" -> {
+                boolean has = s.hasPermission("colorwar.admin");
+                Msg.send(s, "<yellow>colorwar.admin: " + (has ? "<green>sí" : "<red>no") + " <gray>| op: <white>" + (s.isOp() ? "sí" : "no"));
+                for (PermissionAttachmentInfo info : s.getEffectivePermissions()) {
+                    String perm = info.getPermission();
+                    if (!info.getValue() || !(perm.equals("*") || perm.equals("colorwar.*") || perm.equals("colorwar.admin"))) continue;
+                    String src = info.getAttachment() != null && info.getAttachment().getPlugin() != null
+                            ? info.getAttachment().getPlugin().getName() : "por defecto (op) o plugin de permisos";
+                    Msg.send(s, "<gray> - <white>" + perm + " <gray>concedido por: <white>" + src);
+                }
+                if (has && !s.isOp()) {
+                    Msg.send(s, "<yellow>Tienes el permiso sin ser op: te lo da un plugin de permisos (LuckPerms...) o un comodín (*). Quítalo ahí.");
+                }
             }
             case "placeholders" -> {
                 Msg.send(s, "<yellow>Placeholders (requieren PlaceholderAPI):");

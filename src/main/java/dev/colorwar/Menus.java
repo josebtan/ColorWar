@@ -37,8 +37,14 @@ public final class Menus {
                 });
             }
             if (p.hasPermission("colorwar.admin")) {
-                set(26, icon(Material.COMMAND_BLOCK, "<light_purple><bold>Administrar arenas"),
-                        e -> new Admin(plugin).open(p));
+                set(26, icon(Material.COMMAND_BLOCK, "<light_purple><bold>Administrar arenas"), e -> {
+                    if (!p.hasPermission("colorwar.admin")) {   // pudo perder el permiso con el menú abierto
+                        Msg.send(p, "<red>No tienes permiso.");
+                        refresh(p);
+                        return;
+                    }
+                    new Admin(plugin).open(p);
+                });
             }
         }
     }
@@ -188,6 +194,11 @@ public final class Menus {
         }
 
         @Override
+        public boolean adminOnly() {
+            return true;
+        }
+
+        @Override
         public void open(Player p) {
             if (!p.hasPermission("colorwar.admin")) {
                 Msg.send(p, "<red>No tienes permiso.");
@@ -223,6 +234,11 @@ public final class Menus {
         public ArenaAdmin(ColorWarPlugin pl, Arena a) {
             super(pl, 4, "<dark_gray>Arena: " + a.name);
             this.a = a;
+        }
+
+        @Override
+        public boolean adminOnly() {
+            return true;
         }
 
         @Override
