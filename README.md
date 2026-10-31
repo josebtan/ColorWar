@@ -76,3 +76,10 @@ puede cortar su estela antes de que cierre el bucle y adapta su modo: **expansi�
 líder o del rival más cercano y caza estelas) o **defensa** (si va ganando y queda poco tiempo, bucles pequeños y seguros).
 Recuerda quién lo eliminó y lo persigue. En equipos reparte roles (los bots impares atacan), solo un bot persigue cada
 estela enemiga, evita solapar sus bucles con los de compañeros y se pone en alerta cuando cae un aliado.
+
+## Estelas
+- Pisar tu propia estela **no te elimina** (puedes volver a activarlo con `own-trail-kills: true`). Si cruzas tu estela
+  formando un lazo, lo encerrado se captura al volver a tu territorio.
+- En modo **team**, si tocas la estela de un compañero mientras tú también llevas estela, ambas se **fusionan**:
+  las dos estelas se convierten en territorio y se captura todo lo que quede encerrado entre ellas y vuestro territorio
+  (`team-merge-trails: true`).

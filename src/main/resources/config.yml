@@ -12,6 +12,8 @@ border-block: BLACK_CONCRETE # bloque del borde visible alrededor de la arena
 border-height: 3             # altura del borde (1 = solo una línea en el suelo)
 team-respawn-seconds: 5      # reaparición en modo equipos
 friendly-trail-safe: true    # en equipos, pisar la estela de un compañero no lo mata
+team-merge-trails: true      # en equipos, al tocar la estela de un compañero se fusionan y se capturan juntas
+own-trail-kills: false       # true = chocar con tu propia estela te elimina
 block-commands: true         # bloquea comandos dentro de la partida (excepto /cw)
 
 # Recompensas. Los comandos se ejecutan desde consola; {player} = nombre del jugador.

@@ -432,15 +432,24 @@ public class Game {
         int t = trail[gx][gz];
         if (t > 0) {
             if (t == gp.slot) {
-                int idx = gp.trailCells.lastIndexOf(c);
-                if (idx >= gp.trailCells.size() - 2) return;   // tolerancia al pisar la celda anterior
-                kill(gp, null);
+                // Pisar tu propia estela es inofensivo (con own-trail-kills: true vuelve a matar)
+                if (plugin.getConfig().getBoolean("own-trail-kills", false)) {
+                    int idx = gp.trailCells.lastIndexOf(c);
+                    if (idx < gp.trailCells.size() - 2) kill(gp, null);   // tolerancia al pisar la celda anterior
+                }
                 return;
             }
             GamePlayer victim = bySlot[t];
             boolean safe = arena.mode == Arena.PlayMode.TEAM && victim != null && victim.side == gp.side
                     && plugin.getConfig().getBoolean("friendly-trail-safe", true);
-            if (safe) return;
+            if (safe) {
+                // Equipos: al tocar la estela de un compañero ambas se fusionan y se captura todo el conjunto
+                if (!gp.trailCells.isEmpty() && victim.alive && !victim.trailCells.isEmpty()
+                        && plugin.getConfig().getBoolean("team-merge-trails", true)) {
+                    captureGroup(gp, victim);
+                }
+                return;
+            }
             if (victim != null) kill(victim, gp);
             else trail[gx][gz] = 0;
         }
@@ -457,15 +466,27 @@ public class Game {
     // ------------------------------------------------------------- captura
 
     private void capture(GamePlayer gp) {
+        captureGroup(gp, null);
+    }
+
+    /**
+     * Convierte en territorio la estela de gp (y la de su compañero si se fusionaron) y rellena todo lo
+     * que quede encerrado entre esas estelas y el territorio del lado.
+     */
+    private void captureGroup(GamePlayer gp, GamePlayer mate) {
         int id = gp.side + 1;
-        int gained = gp.trailCells.size();
-        for (int c : gp.trailCells) {
-            int gx = c / d, gz = c % d;
-            trail[gx][gz] = 0;
-            owner[gx][gz] = id;
-            dirty.add(c);
+        int gained = 0;
+        GamePlayer[] group = mate == null ? new GamePlayer[]{gp} : new GamePlayer[]{gp, mate};
+        for (GamePlayer g : group) {
+            gained += g.trailCells.size();
+            for (int c : g.trailCells) {
+                int gx = c / d, gz = c % d;
+                trail[gx][gz] = 0;
+                owner[gx][gz] = id;
+                dirty.add(c);
+            }
+            g.trailCells.clear();
         }
-        gp.trailCells.clear();
 
         boolean[][] out = new boolean[w][d];
         ArrayDeque<int[]> q = new ArrayDeque<>();
@@ -497,10 +518,13 @@ public class Game {
                 }
             }
         }
-        Player p = gp.player();
-        if (p != null) {
+        String gainText = pct(gained, w * d);
+        for (GamePlayer g : group) {
+            Player p = g.player();
+            if (p == null) continue;
             p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.2f);
-            p.sendActionBar(Msg.parse("<green>+" + pct(gained, w * d) + " <gray>de territorio"));
+            p.sendActionBar(Msg.parse("<green>+" + gainText + " <gray>de territorio"
+                    + (mate != null ? " <aqua>(estelas fusionadas)" : "")));
         }
         checkFullMap(counts());
     }
