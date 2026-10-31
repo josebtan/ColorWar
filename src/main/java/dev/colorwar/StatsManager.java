@@ -97,6 +97,11 @@ public class StatsManager {
         }
     }
 
+    /** Estadísticas existentes de un jugador, o null si nunca jugó (no crea entradas). */
+    public PlayerStats find(UUID id) {
+        return data.get(id);
+    }
+
     public PlayerStats get(UUID id, String name) {
         PlayerStats st = data.computeIfAbsent(id, k -> {
             PlayerStats n = new PlayerStats();

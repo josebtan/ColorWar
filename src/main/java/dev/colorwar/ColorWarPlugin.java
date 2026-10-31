@@ -14,6 +14,7 @@ public class ColorWarPlugin extends JavaPlugin {
     private StatsManager stats;
     private RewardManager rewards;
     private GameManager games;
+    private Runnable papiUnhook;
     private SelectionManager selections;
 
     @Override
@@ -38,11 +39,20 @@ public class ColorWarPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new GameListener(this), this);
         getServer().getPluginManager().registerEvents(new MenuListener(), this);
         getServer().getPluginManager().registerEvents(new SelectionListener(this), this);
+        if (getServer().getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+            try {
+                papiUnhook = PapiHook.register(this);
+                getLogger().info("Placeholders registrados en PlaceholderAPI: %colorwar_...% (usa /cw placeholders).");
+            } catch (Throwable t) {
+                getLogger().warning("No se pudieron registrar los placeholders: " + t.getMessage());
+            }
+        }
         getLogger().info("ColorWar activado con " + arenas.all().size() + " arena(s).");
     }
 
     @Override
     public void onDisable() {
+        if (papiUnhook != null) papiUnhook.run();
         if (games != null) games.shutdown();
         if (stats != null) stats.save();
         if (arenas != null) arenas.save();

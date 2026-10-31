@@ -17,6 +17,8 @@ public class GameManager {
     }
 
     public Game gameOf(UUID id) { return byPlayer.get(id); }
+    public int playersInGames() { return byPlayer.size(); }
+    public int gamesRunning() { return games.size(); }
     public Game gameOf(Arena a) { return games.get(a.name.toLowerCase()); }
     void register(UUID id, Game g) { byPlayer.put(id, g); }
     void unregister(UUID id) { byPlayer.remove(id); }

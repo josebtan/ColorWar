@@ -17,7 +17,7 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
     private static final Pattern BOT_NAME = Pattern.compile("[A-Za-z0-9_]{1,16}");
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_-]{1,16}");
     private static final List<String> PLAYER_SUBS = List.of("menu", "join", "leave", "list", "top", "stats");
-    private static final List<String> ADMIN_SUBS = List.of("admin", "debug", "create", "delete", "wand", "pos1", "pos2", "sel", "resize", "addspawn",
+    private static final List<String> ADMIN_SUBS = List.of("admin", "placeholders", "debug", "create", "delete", "wand", "pos1", "pos2", "sel", "resize", "addspawn",
             "clearspawns", "setlobby", "setmainlobby", "set", "info", "forcestart", "forcestop", "reload");
     private static final List<String> SET_KEYS = List.of("mode", "spawnmode", "min", "max", "time", "teams", "enabled");
 
@@ -84,6 +84,20 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                     } catch (IllegalArgumentException ignored) { }
                 }
                 new Menus.Top(plugin, cat).open(p);
+            }
+            case "placeholders" -> {
+                Msg.send(s, "<yellow>Placeholders (requieren PlaceholderAPI):");
+                String[] lines = {
+                        "<white>%colorwar_top_[cat]_[pos]_name%</white> <gray>nombre en esa posición (cat: wins, kills, best, games; pos 1-20)",
+                        "<white>%colorwar_top_[cat]_[pos]_value%</white> <gray>su valor",
+                        "<white>%colorwar_top_[cat]_[pos]_line%</white> <gray>«Nombre - valor» (también %colorwar_top_[cat]_[pos]%)",
+                        "<white>%colorwar_wins% _games _kills _deaths _coins _best _winrate _kdr</white> <gray>estadísticas del jugador",
+                        "<white>%colorwar_arena_[nombre]_[status|players|max|min|mode]%</white> <gray>estado de una arena",
+                        "<white>%colorwar_players_total%</white> <gray>jugadores en partida · <white>%colorwar_games_running%</white> <gray>partidas activas",
+                        "<white>%colorwar_ingame%</white> <gray>true/false · <white>%colorwar_arena%</white> <gray>arena del jugador"
+                };
+                for (String line : lines) s.sendMessage(Msg.parse(line));
+                Msg.send(s, "<gray>Prueba uno con <white>/papi parse me %colorwar_top_wins_1_name%");
             }
             case "admin" -> {
                 Player p = player(s);

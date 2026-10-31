@@ -60,4 +60,8 @@ debug:
 tips:
   third-person: true     # al empezar, sugiere pulsar F5 para la tercera persona
 
+# Placeholders (PlaceholderAPI)
+placeholders:
+  empty: "---"           # texto de las posiciones vacías en las clasificaciones
+
 config-version: 2

@@ -2,6 +2,7 @@ name: ColorWar
 version: 1.0.0
 main: dev.colorwar.ColorWarPlugin
 api-version: '1.21'
+softdepend: [PlaceholderAPI]
 description: Minijuego de conquista de territorio con bloques de concreto
 commands:
   colorwar:

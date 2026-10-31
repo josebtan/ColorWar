@@ -89,3 +89,27 @@ estela enemiga, evita solapar sus bucles con los de compañeros y se pone en ale
 - En modo **team**, si tocas la estela de un compañero mientras tú también llevas estela, ambas se **fusionan**:
   las dos estelas se convierten en territorio y se captura todo lo que quede encerrado entre ellas y vuestro territorio
   (`team-merge-trails: true`).
+
+## Placeholders (PlaceholderAPI) y hologramas de clasificación
+Requiere el plugin **PlaceholderAPI** y un plugin de hologramas compatible (DecentHolograms, FancyHolograms...).
+Prueba cualquiera con `/papi parse me %colorwar_top_wins_1_name%`. `/cw placeholders` los lista en el juego.
+
+| Placeholder | Resultado |
+|---|---|
+| `%colorwar_top_[cat]_[pos]_name%` | Nombre en esa posición (cat: `wins`, `kills`, `best`, `games`; pos 1-20) |
+| `%colorwar_top_[cat]_[pos]_value%` | Su valor (`best` se muestra como %) |
+| `%colorwar_top_[cat]_[pos]_line%` | «Nombre - valor» (también `%colorwar_top_[cat]_[pos]%`) |
+| `%colorwar_wins%` `_games` `_kills` `_deaths` `_coins` `_best` `_winrate` `_kdr` | Estadísticas del jugador |
+| `%colorwar_arena_[nombre]_status%` | Libre, Esperando, Empezando, En juego, Terminando o No disponible |
+| `%colorwar_arena_[nombre]_players%` `_max` `_min` `_mode` | Datos de una arena |
+| `%colorwar_players_total%` `%colorwar_games_running%` | Jugadores en partida y partidas activas |
+| `%colorwar_ingame%` `%colorwar_arena%` | Si el jugador está en partida y en cuál |
+
+Ejemplo de holograma (top 3 de victorias):
+```
+&6&lTOP VICTORIAS
+&e#1 &f%colorwar_top_wins_1_name% &7- &a%colorwar_top_wins_1_value%
+&e#2 &f%colorwar_top_wins_2_name% &7- &a%colorwar_top_wins_2_value%
+&e#3 &f%colorwar_top_wins_3_name% &7- &a%colorwar_top_wins_3_value%
+```
+Las posiciones vacías muestran `placeholders.empty` (por defecto `---`). Las clasificaciones se refrescan cada 3 segundos.
