@@ -187,8 +187,8 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                                     return true;
                                 }
                             }
-                            cur.debugSetTime(secs);
-                            Msg.send(p, "<green>Quedan " + secs + "s.");
+                            if (cur.debugSetTime(secs)) Msg.send(p, "<green>Quedan " + secs + "s.");
+                            else Msg.send(p, "<red>Esta partida no tiene límite de tiempo <gray>(activa time-limit: true en config.yml).");
                         }
                         case "stop" -> {
                             cur.stopNow();
@@ -398,7 +398,8 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                 String prob = ar.problem();
                 Msg.send(s, "<yellow>" + ar.name + ": <gray>modo <white>" + ar.mode + "<gray>, spawns <white>" + ar.spawnMode
                         + " (" + ar.spawns.size() + ")<gray>, jugadores <white>" + ar.minPlayers + "-" + ar.maxPlayers
-                        + "<gray>, tiempo <white>" + ar.duration + "s<gray>, equipos <white>" + ar.teams
+                        + "<gray>, tiempo <white>" + (plugin.getConfig().getBoolean("time-limit", false) ? ar.duration + "s" : "sin límite")
+                        + "<gray>, equipos <white>" + ar.teams
                         + "<gray>, activa <white>" + ar.enabled);
                 Msg.send(s, prob == null ? "<green>Configuración correcta (" + ar.width() + "x" + ar.depth() + ")."
                         : "<red>" + prob);
@@ -456,7 +457,9 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
             return;
         }
         plugin.arenas().save();
-        Msg.send(s, "<green>" + key + " actualizado.");
+        Msg.send(s, "<green>" + key + " actualizado."
+                + (key.equals("time") && !plugin.getConfig().getBoolean("time-limit", false)
+                ? " <gray>(ahora no hay límite de tiempo: actívalo con time-limit: true en config.yml)" : ""));
     }
 
     // ---------------------------------------------------------------- utils

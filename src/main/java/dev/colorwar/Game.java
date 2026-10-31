@@ -62,7 +62,7 @@ public class Game {
 
     private BukkitTask countdownTask, renderTask, clockTask, finishTask, celebrationTask, spreadTask;
     private final List<GamePlayer> diedLeft = new ArrayList<>();   // eliminados que ya salieron (cobran premio al final)
-    private int countdown, timeLeft;
+    private int countdown, timeLeft, elapsed;
     private boolean floorTouched, closing;
 
     private int sideCount;
@@ -128,6 +128,15 @@ public class Game {
 
     private static String pct(int cells, int total) {
         return String.format(Locale.US, "%.1f%%", cells * 100.0 / total);
+    }
+
+    /** Por defecto las partidas no tienen límite de tiempo: terminan al quedar un ganador o completarse el mapa. */
+    private boolean timeLimited() {
+        return plugin.getConfig().getBoolean("time-limit", false) && arena.duration > 0;
+    }
+
+    private String timeText() {
+        return fmtTime(timeLimited() ? Math.max(0, timeLeft) : elapsed);
     }
 
     private static String fmtTime(int s) {
@@ -275,6 +284,7 @@ public class Game {
         state = State.RUNNING;
         floorTouched = true;
         timeLeft = arena.duration;
+        elapsed = 0;
         owner = new int[w][d];
         trail = new int[w][d];
         dirty.clear();
@@ -1331,7 +1341,7 @@ public class Game {
         for (int s = 0; s < sideCount; s++) {
             if (s != b.side && !sideOut[s]) bestOther = Math.max(bestOther, cs[s]);
         }
-        double timeFrac = arena.duration <= 0 ? 1 : Math.max(0, timeLeft) / (double) arena.duration;
+        double timeFrac = timeLimited() ? Math.max(0, timeLeft) / (double) arena.duration : 1.0;
         boolean leading = mine > bestOther;
         double lead = (mine - bestOther) * 100.0 / total;
         if (leading && lead >= 3 && timeFrac < 0.35) return MODE_TURTLE;
@@ -1622,14 +1632,17 @@ public class Game {
         return true;
     }
 
-    public void debugSetTime(int seconds) {
-        if (state == State.RUNNING) timeLeft = Math.max(1, seconds);
+    /** @return false si la partida no tiene límite de tiempo (time-limit: false) o no está en curso. */
+    public boolean debugSetTime(int seconds) {
+        if (state != State.RUNNING || !timeLimited()) return false;
+        timeLeft = Math.max(1, seconds);
+        return true;
     }
 
     public List<String> debugInfo(Player p) {
         List<String> out = new ArrayList<>();
         GamePlayer gp = players.get(p.getUniqueId());
-        out.add("<yellow>Estado: <white>" + state + " <gray>| tiempo: <white>" + fmtTime(Math.max(0, timeLeft))
+        out.add("<yellow>Estado: <white>" + state + " <gray>| " + (timeLimited() ? "tiempo restante" : "transcurrido") + ": <white>" + timeText()
                 + " <gray>| modo: <white>" + arena.mode + " <gray>| mapa: <white>" + w + "x" + d);
         if (state != State.RUNNING || gp == null || gp.side < 0) return out;
         int[] counts = counts();
@@ -1679,7 +1692,8 @@ public class Game {
 
     private void tickSecond() {
         if (state != State.RUNNING) return;
-        timeLeft--;
+        elapsed++;
+        if (timeLimited()) timeLeft--;
         int total = w * d;
         int[] counts = counts();
         for (GamePlayer gp : players.values()) {
@@ -1687,10 +1701,16 @@ public class Game {
         }
         if (checkFullMap(counts)) return;
         Integer[] order = ranking(counts);
-        bar.name(Msg.parse("<gold>ColorWar" + (debug ? " <red>[DEBUG]" : "") + " <gray>| <white>" + fmtTime(Math.max(0, timeLeft))));
-        bar.progress(Math.max(0f, Math.min(1f, timeLeft / (float) arena.duration)));
+        bar.name(Msg.parse("<gold>ColorWar" + (debug ? " <red>[DEBUG]" : "") + " <gray>| <white>" + timeText()));
+        if (timeLimited()) {
+            bar.progress(Math.max(0f, Math.min(1f, timeLeft / (float) arena.duration)));
+        } else {   // sin límite: la barra muestra cuánto del campo domina el líder
+            int top = 0;
+            for (int v : counts) top = Math.max(top, v);
+            bar.progress(Math.max(0f, Math.min(1f, top / (float) total)));
+        }
         for (GamePlayer gp : players.values()) updateBoard(gp, counts, order);
-        if (timeLeft <= 0) end();
+        if (timeLimited() && timeLeft <= 0) end();
     }
 
     private void updateBoard(GamePlayer gp, int[] counts, Integer[] order) {
@@ -1700,7 +1720,7 @@ public class Game {
         gp.lines.clear();
         List<String> lines = new ArrayList<>();
         if (debug) lines.add("§c§lDEBUG");
-        lines.add("§7Tiempo: §f" + fmtTime(Math.max(0, timeLeft)));
+        lines.add("§7Tiempo: §f" + timeText());
         lines.add("§7Eliminaciones: §f" + gp.kills);
         lines.add("§7Tu mapa: §f" + pct(counts[gp.side], total));
         lines.add(" ");

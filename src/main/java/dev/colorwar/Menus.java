@@ -75,7 +75,7 @@ public final class Menus {
                         "<gray>Estado: " + status,
                         "<gray>Modo: <white>" + (a.mode == Arena.PlayMode.SOLO ? "Solo" : "Equipos (" + a.teams + ")"),
                         "<gray>Jugadores: <white>" + count + "/" + Math.min(a.maxPlayers, Colors.PALETTE.size()),
-                        "<gray>Duración: <white>" + a.duration + "s",
+                        "<gray>Duración: <white>" + (plugin.getConfig().getBoolean("time-limit", false) ? a.duration + "s" : "sin límite"),
                         "",
                         "<yellow>Click para unirte"), e -> {
                     p.closeInventory();
@@ -260,7 +260,7 @@ public final class Menus {
                 a.maxPlayers = Math.max(a.minPlayers, Math.min(Colors.PALETTE.size(), a.maxPlayers + (e.isLeftClick() ? 1 : -1)));
                 changed(p);
             });
-            set(14, icon(Material.CLOCK, "<yellow>Duración: <white>" + a.duration + "s",
+            set(14, icon(Material.CLOCK, "<yellow>Duración: <white>" + (plugin.getConfig().getBoolean("time-limit", false) ? a.duration + "s" : "sin límite (time-limit: false)"),
                     "<gray>Izq +30s | Der -30s"), e -> {
                 a.duration = Math.max(30, Math.min(1800, a.duration + (e.isLeftClick() ? 30 : -30)));
                 changed(p);
