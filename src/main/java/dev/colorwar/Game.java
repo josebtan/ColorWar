@@ -60,7 +60,7 @@ public class Game {
     private int[][] owner, trail;               // owner: lado+1 | trail: slot del jugador
     private final ArrayDeque<Integer> dirty = new ArrayDeque<>();
 
-    private BukkitTask countdownTask, renderTask, clockTask, finishTask, celebrationTask;
+    private BukkitTask countdownTask, renderTask, clockTask, finishTask, celebrationTask, spreadTask;
     private final List<GamePlayer> diedLeft = new ArrayList<>();   // eliminados que ya salieron (cobran premio al final)
     private int countdown, timeLeft;
     private boolean floorTouched, closing;
@@ -1738,10 +1738,18 @@ public class Game {
 
     // ----------------------------------------------------------------- final
 
+    /**
+     * Fin de la partida (último en pie, tiempo o mapa completo). Se congela el juego y el color del ganador
+     * avanza solo hasta ocupar todo el campo; solo entonces salen el mensaje de victoria, los premios y los fuegos.
+     */
     private void end() {
         if (state != State.RUNNING) return;
         state = State.ENDING;
         if (clockTask != null) clockTask.cancel();
+        if (botTask != null) {
+            botTask.cancel();
+            botTask = null;
+        }
         int total = w * d;
         int[] counts = counts();
         for (GamePlayer gp : players.values()) {
@@ -1751,7 +1759,73 @@ public class Game {
         int[] rank = new int[sideCount];
         for (int i = 0; i < sideCount; i++) rank[order[i]] = i + 1;
         String winnerName = sideName[order[0]];
+        int winnerSide = order[0];
+        for (GamePlayer gp : players.values()) clearTrail(gp);   // las estelas desaparecen
+        startSpread(winnerSide, () -> announceResults(counts, order, rank, winnerName, total));
+    }
 
+    /** El color del ganador se expande desde su territorio hasta cubrir toda la arena. */
+    private void startSpread(int winnerSide, Runnable done) {
+        int id = winnerSide + 1;
+        ArrayDeque<int[]> q = new ArrayDeque<>();
+        int remaining = 0;
+        for (int gx = 0; gx < w; gx++) {
+            for (int gz = 0; gz < d; gz++) {
+                if (owner[gx][gz] == id) q.add(new int[]{gx, gz});
+                else remaining++;
+            }
+        }
+        if (q.isEmpty()) {   // sin territorio: se siembra desde el centro
+            owner[w / 2][d / 2] = id;
+            dirty.add((w / 2) * d + d / 2);
+            q.add(new int[]{w / 2, d / 2});
+            remaining--;
+        }
+        if (remaining <= 0) {
+            done.run();
+            return;
+        }
+        int seconds = Math.max(1, plugin.getConfig().getInt("victory-spread-seconds", 5));
+        int perTick = Math.max(8, (int) Math.ceil(remaining / (seconds * 20.0)));
+        broadcastBar("<" + sideColor[winnerSide].mm() + "><n> <gray>está conquistando todo el campo...", Msg.p("n", sideName[winnerSide]));
+        final int[] ticks = {0};
+        spreadTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            int claimed = 0;
+            while (claimed < perTick && !q.isEmpty()) {
+                int[] cur = q.poll();
+                for (int k = 0; k < 4; k++) {
+                    int nx = cur[0] + DX[k], nz = cur[1] + DZ[k];
+                    if (nx < 0 || nz < 0 || nx >= w || nz >= d || owner[nx][nz] == id) continue;
+                    owner[nx][nz] = id;
+                    dirty.add(nx * d + nz);
+                    q.add(new int[]{nx, nz});
+                    claimed++;
+                }
+            }
+            if (++ticks[0] % 8 == 0) {
+                for (GamePlayer gp : players.values()) {
+                    Player p = gp.player();
+                    if (p != null) p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_CHIME, 0.5f, 0.6f + Math.min(1.4f, ticks[0] / 80f));
+                }
+            }
+            if (q.isEmpty()) {
+                spreadTask.cancel();
+                spreadTask = null;
+                done.run();
+            }
+        }, 1L, 1L);
+    }
+
+    private void broadcastBar(String mm, TagResolver... r) {
+        for (GamePlayer gp : players.values()) {
+            Player p = gp.player();
+            if (p != null) p.sendActionBar(Msg.parse(mm, r));
+        }
+    }
+
+    /** Con todo el campo del color del ganador: resultados, premios, título de victoria y fuegos artificiales. */
+    private void announceResults(int[] counts, Integer[] order, int[] rank, String winnerName, int total) {
+        if (state != State.ENDING) return;
         broadcast("<gold><bold>━━ Resultados ━━");
         for (int i = 0; i < Math.min(3, sideCount); i++) {
             int s = order[i];
@@ -1794,7 +1868,7 @@ public class Game {
         if (p == null || !inGame) return;
         if (win) {
             p.showTitle(Title.title(Msg.parse("<gold><bold>¡VICTORIA!"),
-                    Msg.parse("<gray>Mapa conquistado: <white>" + pct(counts[gp.side], total))));
+                    Msg.parse("<gray>¡Conquistaste todo el campo!")));
             p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1f);
         } else {
             p.showTitle(Title.title(Msg.parse("<yellow>Puesto #" + place),
@@ -1853,10 +1927,10 @@ public class Game {
 
     private void cancelTasks() {
         removeBotEntities();
-        for (BukkitTask t : new BukkitTask[]{countdownTask, renderTask, clockTask, finishTask, celebrationTask, botTask}) {
+        for (BukkitTask t : new BukkitTask[]{countdownTask, renderTask, clockTask, finishTask, celebrationTask, botTask, spreadTask}) {
             if (t != null) t.cancel();
         }
-        countdownTask = renderTask = clockTask = finishTask = celebrationTask = botTask = null;
+        countdownTask = renderTask = clockTask = finishTask = celebrationTask = botTask = spreadTask = null;
     }
 
     private void dispose() {

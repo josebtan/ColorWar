@@ -30,8 +30,9 @@ Recompensas y ajustes: config.yml. Datos: arenas.yml y stats.yml.
 
 ## Reglas de la partida
 - Al morir pasas unos segundos en espectador (death-spectate-seconds) y sales de la partida.
-- Si un jugador completa el mapa (win-percent) o es el último en pie, gana al instante:
-  title, partículas y fuegos artificiales a su alrededor; luego la arena queda libre para otra partida.
+- Si un jugador completa el mapa (win-percent), es el último en pie o gana por tiempo, el juego se congela y su color
+  **avanza solo hasta cubrir toda la arena** (`victory-spread-seconds`). Cuando termina salen el mensaje de victoria,
+  los premios, las partículas y los fuegos artificiales; luego la arena queda libre para otra partida.
 
 ## Modo debug (probar en solitario)
 `/cw debug [arena] [bots o nombres]` inicia una partida de prueba al instante, sin cuenta atrás, con bots

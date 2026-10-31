@@ -5,6 +5,7 @@ speed-level: 1               # nivel de velocidad durante la partida (0 = ningun
 blocks-per-tick: 1500        # bloques repintados por tick (baja si hay lag)
 base-block: WHITE_CONCRETE   # suelo vacío de la arena
 win-percent: 100             # si alguien llega a este % del mapa gana al instante
+victory-spread-seconds: 5     # al ganar, el color del ganador cubre todo el campo en este tiempo
 end-delay-seconds: 8         # segundos de celebración (fuegos artificiales) antes de cerrar la partida
 death-spectate-seconds: 4    # segundos en espectador al morir, luego sale de la partida
 team-respawn: false          # true = en equipos reaparecen en vez de salir
