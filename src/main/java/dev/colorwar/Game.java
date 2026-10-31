@@ -1044,7 +1044,7 @@ public class Game {
     // Nivel 3 (difícil): bucles más grandes hacia donde hay más terreno (prefiere el enemigo),
     //                    detecta amenazas desde más lejos y persigue estelas a mayor distancia.
 
-    private static final int PH_IDLE = 0, PH_LEG1 = 1, PH_LEG2 = 2, PH_LEG3 = 3, PH_RETURN = 4, PH_CHASE = 5;
+    private static final int PH_IDLE = 0, PH_LEG1 = 1, PH_LEG2 = 2, PH_LEG3 = 3, PH_RETURN = 4, PH_CHASE = 5, PH_MERGE = 6;
 
     private void botStep(GamePlayer b) {
         int cx = b.lastCell / d, cz = b.lastCell % d;
@@ -1181,20 +1181,48 @@ public class Game {
         if (b.alert > 0) b.alert--;
         int tl = b.trailCells.size();
         boolean inHome = owner[cx][cz] == b.side + 1;
-        if (inHome && tl == 0 && b.phase >= PH_LEG2) b.phase = PH_IDLE;
+        if (inHome && tl == 0 && b.phase >= PH_LEG2 && b.phase != PH_MERGE) b.phase = PH_IDLE;
         if (tl > 0 && b.phase == PH_IDLE) b.phase = PH_RETURN;
         if (b.phase == PH_IDLE) {
             b.boxSet = false;
             b.huntSlot = 0;
         }
 
+        // 0) Equipos: fusionar estela con un compañero (cierra el bucle al instante y captura las dos)
+        if (arena.mode == Arena.PlayMode.TEAM && plugin.getConfig().getBoolean("team-merge-trails", true)) {
+            int[] mt = nearestMateTrail(b, cx, cz, 16, tl == 0);
+            boolean go = false;
+            if (mt != null) {
+                int dist = Math.abs(mt[0] - cx) + Math.abs(mt[1] - cz);
+                if (tl > 0) {
+                    // fuera de casa: fusionar si está cerca, o si hay peligro y el compañero queda más cerca que mi base
+                    int[] home = nearestOwnCell(b, cx, cz, 40);
+                    int distHome = home == null ? 99 : Math.abs(home[0] - cx) + Math.abs(home[1] - cz);
+                    go = exposed(b, cx, cz) ? dist < distHome : (b.phase == PH_MERGE || dist <= 6);
+                } else if (b.phase == PH_MERGE) {
+                    go = true;
+                } else if (b.phase == PH_IDLE && b.mode != MODE_TURTLE
+                        && mergeValue(b, cx, cz, mt[0], mt[1]) >= 14 && rnd.nextInt(100) < 70) {
+                    go = true;   // salir a encontrarse con él si hay terreno que encerrar entre los dos
+                }
+                if (go) {
+                    int[] st = stepToward(b, cx, cz, mt[0], mt[1]);
+                    if (st != null) {
+                        b.phase = PH_MERGE;
+                        return st;
+                    }
+                }
+            }
+            if (!go && b.phase == PH_MERGE) b.phase = tl > 0 ? PH_RETURN : PH_IDLE;
+        }
+
         // 1) Seguridad: si algún tramo de la estela puede ser cortado antes de cerrar el bucle, volver
-        if (tl > 0 && b.phase != PH_RETURN && exposed(b, cx, cz)) b.phase = PH_RETURN;
+        if (tl > 0 && b.phase != PH_RETURN && b.phase != PH_MERGE && exposed(b, cx, cz)) b.phase = PH_RETURN;
 
         // 2) Ataque coordinado sobre estelas enemigas
         int atkMax = b.mode == MODE_TURTLE ? 0 : (b.mode == MODE_RAID ? 16 : 12);
         if (b.phase == PH_CHASE && tl > atkMax) b.phase = PH_RETURN;
-        if (b.phase != PH_RETURN && atkMax > 0 && tl <= atkMax) {
+        if (b.phase != PH_RETURN && b.phase != PH_MERGE && atkMax > 0 && tl <= atkMax) {
             int[] tgt = pickHuntTarget(b, cx, cz, b.mode == MODE_RAID ? 18 : 14);
             if (tgt != null) {
                 int[] st = stepToward(b, cx, cz, tgt[0], tgt[1]);
@@ -1209,6 +1237,48 @@ public class Game {
             }
         }
         return runPlan(b, cx, cz, tl, true);
+    }
+
+    /** Celda de estela de un compañero (bot o humano) más cercana; con avoidHome descarta las pegadas a mi territorio. */
+    private int[] nearestMateTrail(GamePlayer b, int cx, int cz, int radius, boolean avoidHome) {
+        int bestD = Integer.MAX_VALUE;
+        int[] best = null;
+        for (int x = Math.max(0, cx - radius); x <= Math.min(w - 1, cx + radius); x++) {
+            for (int z = Math.max(0, cz - radius); z <= Math.min(d - 1, cz + radius); z++) {
+                int t = trail[x][z];
+                if (t <= 0 || t == b.slot || t >= bySlot.length) continue;
+                GamePlayer o = bySlot[t];
+                if (o == null || o.side != b.side || !o.alive || o.trailCells.size() < 2) continue;
+                if (avoidHome && touchesOwn(b, x, z)) continue;
+                int dist = Math.abs(x - cx) + Math.abs(z - cz);
+                if (dist < bestD) {
+                    bestD = dist;
+                    best = new int[]{x, z};
+                }
+            }
+        }
+        return best;
+    }
+
+    private boolean touchesOwn(GamePlayer b, int x, int z) {
+        for (int k = 0; k < 4; k++) {
+            int nx = x + DX[k], nz = z + DZ[k];
+            if (nx >= 0 && nz >= 0 && nx < w && nz < d && owner[nx][nz] == b.side + 1) return true;
+        }
+        return false;
+    }
+
+    /** Celdas ajenas dentro del rectángulo entre mi posición y el objetivo (lo que ganarían al fusionar). */
+    private int mergeValue(GamePlayer b, int cx, int cz, int tx, int tz) {
+        int x0 = Math.min(cx, tx), x1 = Math.max(cx, tx), z0 = Math.min(cz, tz), z1 = Math.max(cz, tz);
+        if ((x1 - x0 + 1) * (z1 - z0 + 1) > 400) return 0;
+        int v = 0;
+        for (int x = x0; x <= x1; x++) {
+            for (int z = z0; z <= z1; z++) {
+                if (owner[x][z] != b.side + 1) v++;
+            }
+        }
+        return v;
     }
 
     /** ¿Puede algún enemigo llegar a una celda de mi estela antes de que yo cierre el bucle? */

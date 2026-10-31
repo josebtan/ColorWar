@@ -71,6 +71,8 @@ no den estadísticas ni premios.
 - Nunca cuentan puntos, estadísticas ni premios.
 
 ## IA nivel 3 (estratégica)
+En modo team, además, **fusiona estelas con sus compañeros**: sale a encontrarse con la estela de un compañero (bot o jugador)
+si hay terreno que encerrar entre los dos, y si tiene peligro y el compañero queda más cerca que su base, se fusiona en vez de volver.
 Evalúa bucles rectangulares candidatos (valor del terreno / coste, menos riesgo y solapes), calcula si un enemigo
 puede cortar su estela antes de que cierre el bucle y adapta su modo: **expansión**, **ataque** (roba territorio del
 líder o del rival más cercano y caza estelas) o **defensa** (si va ganando y queda poco tiempo, bucles pequeños y seguros).
