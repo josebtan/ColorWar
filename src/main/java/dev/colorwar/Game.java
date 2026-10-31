@@ -957,7 +957,7 @@ public class Game {
             o.level = lv;
             o.phase = 0;
             o.returning = false;
-            if (o.entity != null && o.side >= 0) BotEntities.label(o.entity, o.name, debug ? stars(lv) : "[Bot]", sideColor[o.side]);
+            if (o.entity != null && o.side >= 0) BotEntities.label(o.entity, o.name, botTag(o), sideColor[o.side]);
             n++;
         }
         return n == 0 ? "No hay ningún bot llamado " + target + "." : null;
@@ -1009,7 +1009,21 @@ public class Game {
 
     private void spawnBotEntity(GamePlayer b) {
         if (b.lastCell < 0 || b.side < 0) return;
-        b.entity = BotEntities.spawn(cellLocation(b.lastCell, 0f), b.name, debug ? stars(b.level) : "[Bot]", sideColor[b.side]);
+        b.entity = BotEntities.spawn(cellLocation(b.lastCell, 0f), b.name, botTag(b), sideColor[b.side]);
+    }
+
+    /** Etiqueta junto al nombre del bot: estrellas de nivel en partidas solo y en debug; "[Bot]" en equipos. */
+    private String botTag(GamePlayer b) {
+        return (debug || arena.mode == Arena.PlayMode.SOLO) ? stars(b.level) : "[Bot]";
+    }
+
+    /** Estrellas del bot de ese lado para el scoreboard (solo en partidas solo, donde cada lado es un jugador). */
+    private String botStars(int side) {
+        if (arena.mode != Arena.PlayMode.SOLO) return "";
+        for (GamePlayer o : players.values()) {
+            if (o.bot && o.side == side) return " §e" + stars(o.level);
+        }
+        return "";
     }
 
     private void removeBotEntity(GamePlayer b) {
@@ -1728,7 +1742,7 @@ public class Game {
         for (Integer s : order) {
             if (sideOut[s] || shown >= 5) continue;
             String nm = sideName[s].length() > 12 ? sideName[s].substring(0, 12) : sideName[s];
-            lines.add(sideColor[s].legacy() + "■ §f" + nm + " §7" + pct(counts[s], total));
+            lines.add(sideColor[s].legacy() + "■ §f" + nm + botStars(s) + " §7" + pct(counts[s], total));
             shown++;
         }
         int score = lines.size();
