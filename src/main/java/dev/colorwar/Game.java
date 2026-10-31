@@ -347,6 +347,7 @@ public class Game {
             Colors.Entry ce = sideColor[gp.side];
             p.showTitle(Title.title(Msg.parse("<gold><bold>¡A conquistar!"),
                     Msg.parse("<gray>Tu color: <" + ce.mm() + ">" + ce.name())));
+            tipThirdPerson(p);
             p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1f);
         }
 
@@ -673,6 +674,13 @@ public class Game {
     }
 
     // ----------------------------------------------- bots de relleno y debug
+    /** La cámara es cosa del cliente: el servidor solo puede sugerir cambiarla (F5). */
+    private void tipThirdPerson(Player p) {
+        if (!plugin.getConfig().getBoolean("tips.third-person", true)) return;
+        Msg.send(p, "<yellow>Consejo: <gray>pulsa <white>F5</white> para jugar en tercera persona y ver mejor tu estela. "
+                + "Puedes cambiarlo cuando quieras.");
+    }
+
     private boolean botsFill() {
         return !debug && plugin.getConfig().getBoolean("bots.enabled", true);
     }
@@ -797,6 +805,7 @@ public class Game {
         gp.obj.setDisplaySlot(DisplaySlot.SIDEBAR);
         p.setScoreboard(gp.board);
         if (bar != null) p.showBossBar(bar);
+        tipThirdPerson(p);
         broadcast("<white><n> <gray>se unió a la partida de prueba.", Msg.p("n", p.getName()));
     }
 

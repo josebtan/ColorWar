@@ -10,7 +10,7 @@ En pom.xml cambia `paper.version` y `java.version` a los de tu servidor
 (1.21.x -> Java 21; 26.x -> Java 25). Copia el jar a /plugins.
 
 ## Crear una arena
-1. Construye un suelo plano de entre 10x10 y 200x200 (con paredes).
+1. Construye un suelo plano de entre 10x10 y 200x200 (con paredes); el plugin lo convierte en concreto blanco.
 2. `/cw wand` te da un hacha de madera (o usa cualquiera).
 3. Clic izquierdo en una esquina del suelo = pos1, clic derecho en la esquina opuesta = pos2.
    Los dos puntos deben estar a la misma altura. `/cw sel` muestra el estado de la selección.
@@ -24,7 +24,7 @@ En pom.xml cambia `paper.version` y `java.version` a los de tu servidor
 /cw (menú), /cw join <arena>, /cw leave, /cw list, /cw top, /cw stats
 
 ## Permisos
-colorwar.play (todos) · colorwar.admin (op)
+Los comandos de jugador no necesitan permiso. Solo `colorwar.admin` (op por defecto) da acceso a la administración y al botón del menú.
 
 Recompensas y ajustes: config.yml. Datos: arenas.yml y stats.yml.
 

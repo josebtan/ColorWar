@@ -9,9 +9,7 @@ commands:
     aliases: [cw, colorwars]
     usage: /<command> [menu|join|leave|list|top|stats]
 permissions:
-  colorwar.play:
-    description: Jugar partidas
-    default: true
+  # Los comandos de jugador (/cw, join, leave, list, top, stats, menús) no necesitan permiso.
   colorwar.admin:
     description: Administrar arenas
     default: op

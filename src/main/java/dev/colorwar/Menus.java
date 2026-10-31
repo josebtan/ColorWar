@@ -188,6 +188,15 @@ public final class Menus {
         }
 
         @Override
+        public void open(Player p) {
+            if (!p.hasPermission("colorwar.admin")) {
+                Msg.send(p, "<red>No tienes permiso.");
+                return;
+            }
+            super.open(p);
+        }
+
+        @Override
         protected void build(Player p) {
             int slot = 0;
             for (Arena a : plugin.arenas().all()) {
@@ -214,6 +223,15 @@ public final class Menus {
         public ArenaAdmin(ColorWarPlugin pl, Arena a) {
             super(pl, 4, "<dark_gray>Arena: " + a.name);
             this.a = a;
+        }
+
+        @Override
+        public void open(Player p) {
+            if (!p.hasPermission("colorwar.admin")) {
+                Msg.send(p, "<red>No tienes permiso.");
+                return;
+            }
+            super.open(p);
         }
 
         private void changed(Player p) {
