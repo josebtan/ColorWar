@@ -221,10 +221,6 @@ public class Game {
 
     private void restorePlayer(GamePlayer gp, Player p) {
         if (p == null) return;
-        if (gp.glowSet) {
-            p.setGlowing(false);
-            gp.glowSet = false;
-        }
         if (bar != null) p.hideBossBar(bar);
         p.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
         for (PotionEffect pe : new ArrayList<>(p.getActivePotionEffects())) p.removePotionEffect(pe.getType());
@@ -367,14 +363,11 @@ public class Game {
 
         renderTask = Bukkit.getScheduler().runTaskTimer(plugin, this::flush, 1L, 1L);
         clockTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tickSecond, 20L, 20L);
-        if (hasBotPlayers()) ensureBotTask();
-    }
-
-    private void ensureBotTask() {
-        if (botTask != null || state != State.RUNNING) return;
-        long delay = Math.max(1, plugin.getConfig().getInt("bots.delay-ticks",
-                plugin.getConfig().getInt("debug.bot-delay-ticks", 3)));
-        botTask = Bukkit.getScheduler().runTaskTimer(plugin, this::botTick, 20L, delay);
+        if (hasBotPlayers()) {
+            long delay = Math.max(1, plugin.getConfig().getInt("bots.delay-ticks",
+                    plugin.getConfig().getInt("debug.bot-delay-ticks", 3)));
+            botTask = Bukkit.getScheduler().runTaskTimer(plugin, this::botTick, 20L, delay);
+        }
     }
 
     private List<int[]> chooseStarts(int n) {
@@ -430,7 +423,6 @@ public class Game {
     public boolean handleMove(Player p, Location to) {
         GamePlayer gp = players.get(p.getUniqueId());
         if (gp == null || !gp.alive) return false;
-        if (state == State.RUNNING && gp.freezeEnd > System.currentTimeMillis()) return true;   // congelado
         int gx = to.getBlockX() - minX, gz = to.getBlockZ() - minZ;
         if (gx < 0 || gz < 0 || gx >= w || gz >= d) return true;
         if (to.getY() < floorY - 1) {
@@ -468,7 +460,6 @@ public class Game {
                 }
                 return;
             }
-            if (victim != null && victim.shieldEnd > System.currentTimeMillis()) return;   // estela protegida por escudo
             if (victim != null) kill(victim, gp);
             else trail[gx][gz] = 0;
         }
@@ -596,7 +587,6 @@ public class Game {
 
     public void kill(GamePlayer v, GamePlayer killer) {
         if (state != State.RUNNING || !v.alive) return;
-        if (v.shieldEnd > System.currentTimeMillis()) return;   // escudo activo
         v.alive = false;
         v.deaths++;
         clearTrail(v);
@@ -853,266 +843,6 @@ public class Game {
         broadcast("<white><n> <gray>se unió a la partida de prueba.", Msg.p("n", p.getName()));
     }
 
-    // ------------------------------------------- eventos en directo (/cw live ...)
-    // Pensado para ChatPointsTTV: cada método actúa sobre la partida del streamer y devuelve
-    // null si salió bien o un mensaje de error.
-
-    private static final String NOT_PLAYING = "El streamer no está jugando una partida en curso.";
-
-    private GamePlayer humanOf(Player p) {
-        GamePlayer gp = players.get(p.getUniqueId());
-        return (gp == null || gp.bot || gp.spectator || gp.side < 0) ? null : gp;
-    }
-
-    private long liveMillis(int seconds) {
-        int max = Math.max(1, plugin.getConfig().getInt("live.max-seconds", 120));
-        return Math.max(1, Math.min(max, seconds)) * 1000L;
-    }
-
-    /** Recalcula el efecto de velocidad: lentitud o impulso temporal si están activos; si no, la velocidad base. */
-    private void refreshSpeed(GamePlayer gp) {
-        Player p = gp.player();
-        if (p == null) return;
-        long now = System.currentTimeMillis();
-        p.removePotionEffect(PotionEffectType.SPEED);
-        p.removePotionEffect(PotionEffectType.SLOWNESS);
-        if (gp.slowEnd > now) {
-            int ticks = (int) Math.min(1_000_000L, (gp.slowEnd - now) / 50 + 1);
-            p.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, ticks, Math.max(0, gp.slowLevel - 1), false, true, true));
-        } else if (gp.boostEnd > now) {
-            int ticks = (int) Math.min(1_000_000L, (gp.boostEnd - now) / 50 + 1);
-            p.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, ticks, Math.max(0, gp.boostLevel - 1), false, true, true));
-        } else {
-            int base = plugin.getConfig().getInt("speed-level", 1);
-            if (base > 0) {
-                p.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, PotionEffect.INFINITE_DURATION,
-                        base - 1, false, false, false));
-            }
-        }
-    }
-
-    private void liveTick() {
-        long now = System.currentTimeMillis();
-        for (GamePlayer gp : players.values()) {
-            if (gp.bot) continue;
-            Player p = gp.player();
-            boolean changed = false;
-            if (gp.boostEnd != 0 && now >= gp.boostEnd) {
-                gp.boostEnd = 0;
-                changed = true;
-            }
-            if (gp.slowEnd != 0 && now >= gp.slowEnd) {
-                gp.slowEnd = 0;
-                changed = true;
-            }
-            if (changed) refreshSpeed(gp);
-            if (gp.shieldEnd != 0 && now >= gp.shieldEnd) {
-                gp.shieldEnd = 0;
-                if (p != null) {
-                    if (gp.glowSet) p.setGlowing(false);
-                    p.sendActionBar(Msg.parse("<gray>El escudo ha terminado"));
-                }
-                gp.glowSet = false;
-            }
-            if (gp.freezeEnd != 0 && now >= gp.freezeEnd) gp.freezeEnd = 0;
-        }
-    }
-
-    public String liveSpeed(Player p, int level, int seconds) {
-        GamePlayer gp = humanOf(p);
-        if (state != State.RUNNING || gp == null) return NOT_PLAYING;
-        gp.boostLevel = Math.max(1, Math.min(5, level));
-        gp.boostEnd = System.currentTimeMillis() + liveMillis(seconds);
-        gp.slowEnd = 0;
-        refreshSpeed(gp);
-        p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1.6f);
-        p.sendActionBar(Msg.parse("<green>¡Velocidad " + gp.boostLevel + " durante " + liveMillis(seconds) / 1000 + "s!"));
-        return null;
-    }
-
-    public String liveSlow(Player p, int level, int seconds) {
-        GamePlayer gp = humanOf(p);
-        if (state != State.RUNNING || gp == null) return NOT_PLAYING;
-        gp.slowLevel = Math.max(1, Math.min(5, level));
-        gp.slowEnd = System.currentTimeMillis() + liveMillis(seconds);
-        gp.boostEnd = 0;
-        refreshSpeed(gp);
-        p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1f, 0.6f);
-        p.sendActionBar(Msg.parse("<red>¡Lentitud " + gp.slowLevel + " durante " + liveMillis(seconds) / 1000 + "s!"));
-        return null;
-    }
-
-    public String liveShield(Player p, int seconds) {
-        GamePlayer gp = humanOf(p);
-        if (state != State.RUNNING || gp == null) return NOT_PLAYING;
-        gp.shieldEnd = System.currentTimeMillis() + liveMillis(seconds);
-        p.setGlowing(true);
-        gp.glowSet = true;
-        p.playSound(p.getLocation(), Sound.ITEM_SHIELD_BLOCK, 1f, 1f);
-        p.sendActionBar(Msg.parse("<aqua>¡Escudo! Tu estela no se puede cortar durante " + liveMillis(seconds) / 1000 + "s"));
-        return null;
-    }
-
-    public String liveFreeze(Player p, int seconds) {
-        GamePlayer gp = humanOf(p);
-        if (state != State.RUNNING || gp == null) return NOT_PLAYING;
-        gp.freezeEnd = System.currentTimeMillis() + liveMillis(seconds);
-        p.playSound(p.getLocation(), Sound.BLOCK_GLASS_BREAK, 1f, 0.8f);
-        p.sendActionBar(Msg.parse("<aqua>¡Congelado durante " + liveMillis(seconds) / 1000 + "s!"));
-        return null;
-    }
-
-    /** Regala territorio: el color del jugador crece desde su zona hasta ganar ese porcentaje del campo. */
-    public String liveGrow(Player p, double pct) {
-        GamePlayer gp = humanOf(p);
-        if (state != State.RUNNING || gp == null) return NOT_PLAYING;
-        int id = gp.side + 1;
-        int target = Math.max(1, (int) Math.round(w * d * Math.max(0.1, Math.min(30.0, pct)) / 100.0));
-        ArrayDeque<int[]> q = new ArrayDeque<>();
-        for (int gx = 0; gx < w; gx++) {
-            for (int gz = 0; gz < d; gz++) {
-                if (owner[gx][gz] == id) q.add(new int[]{gx, gz});
-            }
-        }
-        if (q.isEmpty() && gp.lastCell >= 0) {
-            int sx = gp.lastCell / d, sz = gp.lastCell % d;
-            owner[sx][sz] = id;
-            dirty.add(gp.lastCell);
-            q.add(new int[]{sx, sz});
-        }
-        int claimed = 0;
-        while (claimed < target && !q.isEmpty()) {
-            int[] cur = q.poll();
-            for (int k = 0; k < 4 && claimed < target; k++) {
-                int nx = cur[0] + DX[k], nz = cur[1] + DZ[k];
-                if (nx < 0 || nz < 0 || nx >= w || nz >= d || owner[nx][nz] == id) continue;
-                owner[nx][nz] = id;
-                dirty.add(nx * d + nz);
-                q.add(new int[]{nx, nz});
-                claimed++;
-            }
-        }
-        p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.2f);
-        p.sendActionBar(Msg.parse("<green>+" + pct(claimed, w * d) + " <gray>de territorio de regalo"));
-        checkFullMap(counts());
-        return null;
-    }
-
-    private int liveBotCount() {
-        int n = 0;
-        for (GamePlayer o : players.values()) if (o.bot && o.live && !o.left && !o.eliminated) n++;
-        return n;
-    }
-
-    private GamePlayer findBot(String name) {
-        for (GamePlayer o : players.values()) if (o.bot && o.name.equalsIgnoreCase(name)) return o;
-        return null;
-    }
-
-    /** Nombre del espectador limpio (sin códigos de color ni < >), de hasta 16 caracteres y sin repetir. */
-    private String uniqueName(String raw) {
-        String base = raw == null ? "" : raw.replaceAll("[§<>\\p{Cntrl}]", "").trim();
-        if (base.length() > 16) base = base.substring(0, 16).trim();
-        if (base.isEmpty()) base = "Fan";
-        String nm = base;
-        int i = 2;
-        while (nameTaken(nm)) {
-            String suf = "_" + i++;
-            nm = (base.length() + suf.length() > 16 ? base.substring(0, 16 - suf.length()) : base) + suf;
-        }
-        return nm;
-    }
-
-    /**
-     * Añade un bot con el nombre del espectador. mode (solo en modo equipos): ally = equipo del streamer,
-     * enemy = un equipo rival, auto = el más corto. En modo solo todos los bots son rivales con color nuevo.
-     */
-    public String liveAddBot(Player streamer, int level, String mode, String donor) {
-        if (liveBotCount() >= Math.max(1, plugin.getConfig().getInt("live.max-bots", 6))) {
-            return "Límite de bots de espectadores alcanzado.";
-        }
-        int lv = Math.max(1, Math.min(3, level));
-        String name = uniqueName(donor);
-        if (state == State.WAITING || state == State.COUNTDOWN) {
-            if (players.size() >= maxPlayers()) return "La arena está llena.";
-            addPreBot(name, lv);
-            GamePlayer b = findBot(name);
-            if (b != null) b.live = true;
-            hasBots = true;
-            return null;
-        }
-        if (state != State.RUNNING) return "La partida no está en curso.";
-        GamePlayer sgp = humanOf(streamer);
-        int teamNum = 0;
-        if (arena.mode == Arena.PlayMode.TEAM && sgp != null) {
-            if (mode.equals("ally")) {
-                teamNum = sgp.side + 1;
-            } else if (mode.equals("enemy")) {
-                int[] members = new int[sideCount];
-                for (GamePlayer o : players.values()) {
-                    if (o.side >= 0 && !o.left && !o.eliminated) members[o.side]++;
-                }
-                int best = -1;
-                for (int s = 0; s < sideCount; s++) {
-                    if (s != sgp.side && (best < 0 || members[s] < members[best])) best = s;
-                }
-                if (best >= 0) teamNum = best + 1;
-            }
-        }
-        String err = addBotMid(name, teamNum, lv);
-        if (err == null) {
-            GamePlayer b = findBot(name);
-            if (b != null) b.live = true;
-        }
-        return err;
-    }
-
-    public String liveKillBot(Player streamer) {
-        GamePlayer sgp = humanOf(streamer);
-        if (state != State.RUNNING || sgp == null) return NOT_PLAYING;
-        List<GamePlayer> c = new ArrayList<>();
-        for (GamePlayer o : players.values()) {
-            if (o.bot && o.alive && !o.eliminated && o.side != sgp.side) c.add(o);
-        }
-        if (c.isEmpty()) return "No hay bots rivales que eliminar.";
-        kill(c.get(rnd.nextInt(c.size())), sgp);
-        return null;
-    }
-
-    public String liveSlowBots(Player streamer, int seconds, boolean freeze) {
-        GamePlayer sgp = humanOf(streamer);
-        if (state != State.RUNNING || sgp == null) return NOT_PLAYING;
-        long end = System.currentTimeMillis() + liveMillis(seconds);
-        int n = 0;
-        for (GamePlayer o : players.values()) {
-            if (!o.bot || o.side == sgp.side) continue;
-            if (freeze) o.freezeEnd = end;
-            else o.slowEnd = end;
-            n++;
-        }
-        if (n == 0) return "No hay bots rivales.";
-        streamer.sendActionBar(Msg.parse((freeze ? "<aqua>Bots rivales congelados " : "<yellow>Bots rivales ralentizados ")
-                + liveMillis(seconds) / 1000 + "s"));
-        return null;
-    }
-
-    /** target = null: los bots rivales del streamer; "todos" o un nombre concreto. */
-    public String liveBotLevel(Player streamer, int level, String target) {
-        GamePlayer sgp = humanOf(streamer);
-        if (state != State.RUNNING || sgp == null) return NOT_PLAYING;
-        if (target != null && !target.isBlank()) return debugSetLevel(target, level);
-        int lv = Math.max(1, Math.min(3, level)), n = 0;
-        for (GamePlayer o : players.values()) {
-            if (!o.bot || o.side == sgp.side) continue;
-            o.level = lv;
-            o.phase = 0;
-            o.returning = false;
-            if (o.entity != null && o.side >= 0) BotEntities.label(o.entity, o.name, botTag(o), sideColor[o.side]);
-            n++;
-        }
-        return n == 0 ? "No hay bots rivales." : null;
-    }
-
     // ------------------------------------------------------------ debug
 
     public static String stars(int level) {
@@ -1165,11 +895,6 @@ public class Game {
     /** Añade un bot con la partida en curso. teamNum: equipo 1..N (0 = automático, solo en modo equipos). */
     public String debugAddBot(String name, int teamNum, int level) {
         if (!debug) return "Esto solo funciona en una partida debug.";
-        return addBotMid(name, teamNum, level);
-    }
-
-    /** Añade un bot con la partida en curso (debug o eventos en directo). teamNum: 0 = automático. */
-    private String addBotMid(String name, int teamNum, int level) {
         if (state != State.RUNNING) return "La partida no está en curso.";
         if (name == null || name.isBlank()) name = nextBotName();
         for (GamePlayer o : players.values()) {
@@ -1220,8 +945,6 @@ public class Game {
         initBot(b);
         spawnBotEntity(b);
         broadcast("<white><n> <gray>(bot " + levelName(b.level) + ") se unió a la partida.", Msg.p("n", name));
-        hasBots = true;
-        ensureBotTask();
         return null;
     }
 
@@ -1348,12 +1071,6 @@ public class Game {
     private static final int PH_IDLE = 0, PH_LEG1 = 1, PH_LEG2 = 2, PH_LEG3 = 3, PH_RETURN = 4, PH_CHASE = 5, PH_MERGE = 6;
 
     private void botStep(GamePlayer b) {
-        long nowMs = System.currentTimeMillis();
-        if (b.freezeEnd > nowMs) return;                  // congelado por un evento en directo
-        if (b.slowEnd > nowMs) {                          // ralentizado: la mitad de velocidad
-            b.slowSkip = !b.slowSkip;
-            if (b.slowSkip) return;
-        }
         int cx = b.lastCell / d, cz = b.lastCell % d;
         if (b.level <= 1) {
             b.skip = !b.skip;
@@ -1990,7 +1707,6 @@ public class Game {
     private void tickSecond() {
         if (state != State.RUNNING) return;
         elapsed++;
-        liveTick();
         if (timeLimited()) timeLeft--;
         int total = w * d;
         int[] counts = counts();

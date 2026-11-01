@@ -28,10 +28,6 @@ public class GamePlayer {
     public GamePlayer revenge;                 // quien lo eliminó: lo perseguirá con prioridad
     public final int[] box = new int[4];       // caja del bucle planificado: xmin, xmax, zmin, zmax
     public boolean boxSet;
-    // Eventos en directo
-    public long boostEnd, slowEnd, freezeEnd, shieldEnd;
-    public int boostLevel, slowLevel;
-    public boolean live, glowSet, slowSkip;
     public int dirX, dirZ, limit, homeX, homeZ;
     public int side = -1;
     public int slot = 0;

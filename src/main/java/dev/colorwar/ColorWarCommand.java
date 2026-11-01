@@ -18,7 +18,7 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
     private static final Pattern BOT_NAME = Pattern.compile("[A-Za-z0-9_]{1,16}");
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_-]{1,16}");
     private static final List<String> PLAYER_SUBS = List.of("menu", "join", "leave", "list", "top", "stats", "perm");
-    private static final List<String> ADMIN_SUBS = List.of("admin", "placeholders", "live", "debug", "create", "delete", "wand", "pos1", "pos2", "sel", "resize", "addspawn",
+    private static final List<String> ADMIN_SUBS = List.of("admin", "placeholders", "debug", "create", "delete", "wand", "pos1", "pos2", "sel", "resize", "addspawn",
             "clearspawns", "setlobby", "setmainlobby", "set", "info", "forcestart", "forcestop", "reload");
     private static final List<String> SET_KEYS = List.of("mode", "spawnmode", "min", "max", "time", "teams", "enabled");
 
@@ -100,7 +100,6 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                     Msg.send(s, "<yellow>Tienes el permiso sin ser op: te lo da un plugin de permisos (LuckPerms...) o un comodín (*). Quítalo ahí.");
                 }
             }
-            case "live" -> LiveCommands.handle(plugin, s, a);
             case "placeholders" -> {
                 Msg.send(s, "<yellow>Placeholders (requieren PlaceholderAPI):");
                 String[] lines = {
@@ -556,9 +555,7 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
             if (s.hasPermission("colorwar.admin")) out.addAll(ADMIN_SUBS);
         } else if (a.length == 2) {
             String sub = a[0].toLowerCase(Locale.ROOT);
-            if (sub.equals("live")) {
-                out.addAll(LiveCommands.ACTIONS);
-            } else if (sub.equals("debug")) {
+            if (sub.equals("debug")) {
                 out.addAll(List.of("win", "fill", "die", "time", "info", "stop", "addbot", "addbots", "removebot", "setlevel", "watch"));
                 for (Arena ar : plugin.arenas().all()) out.add(ar.name);
             } else if (sub.equals("top")) {
@@ -570,8 +567,6 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                 && s instanceof Player pl) {
             Game g = plugin.games().gameOf(pl.getUniqueId());
             if (g != null) out.addAll(g.botNames());
-        } else if (a.length == 3 && a[0].equalsIgnoreCase("live")) {
-            for (Player online : Bukkit.getOnlinePlayers()) out.add(online.getName());
         } else if (a.length == 3 && a[0].equalsIgnoreCase("debug") && a[1].equalsIgnoreCase("watch")) {
             for (Arena ar : plugin.arenas().all()) out.add(ar.name);
         } else if (a.length == 3 && a[0].equalsIgnoreCase("create")) {
