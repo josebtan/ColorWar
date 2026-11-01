@@ -113,3 +113,9 @@ Ejemplo de holograma (top 3 de victorias):
 &e#3 &f%colorwar_top_wins_3_name% &7- &a%colorwar_top_wins_3_value%
 ```
 Las posiciones vacías muestran `placeholders.empty` (por defecto `---`). Las clasificaciones se refrescan cada 3 segundos.
+
+## Eventos de TikTok (ChatPointsTTV)
+Los comandos `/cw live ...` (solo consola o administradores) permiten que los eventos de un LIVE actúen sobre la partida
+del streamer: velocidad, lentitud, escudo, congelar, regalar territorio, añadir bots con el nombre del espectador,
+eliminar o congelar bots rivales y cambiar su nivel. `/cw live` muestra la lista completa. Ajustes en `config.yml`
+(sección `live`). Un ejemplo completo de `tiktok.yml` para ChatPointsTTV está en `docs/tiktok.yml`.

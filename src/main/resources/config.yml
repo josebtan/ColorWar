@@ -64,4 +64,10 @@ tips:
 placeholders:
   empty: "---"           # texto de las posiciones vacías en las clasificaciones
 
+# Eventos en directo (TikTok vía ChatPointsTTV): /cw live ... (ver docs/tiktok.yml)
+live:
+  enabled: true          # false = ignora todos los comandos /cw live
+  max-bots: 6            # máximo de bots de espectadores a la vez en una partida
+  max-seconds: 120       # tope de duración de cada efecto temporal
+
 config-version: 2
