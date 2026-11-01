@@ -113,3 +113,13 @@ Ejemplo de holograma (top 3 de victorias):
 &e#3 &f%colorwar_top_wins_3_name% &7- &a%colorwar_top_wins_3_value%
 ```
 Las posiciones vacías muestran `placeholders.empty` (por defecto `---`). Las clasificaciones se refrescan cada 3 segundos.
+
+## Streamers (permiso `colorwar.streamer`)
+Quien tenga `colorwar.streamer` (los administradores ya lo incluyen) puede usar, dentro de su partida **normal o de debug**,
+los comandos de bots de `/cw debug`, pensados para ejecutarse con ChatPointsTTV como `RUN {streamer} cw debug addbot {USER} 1`:
+- `/cw debug addbot [nombre] [nivel 1-3] [equipo|ally|enemy|auto]` (el nombre se limpia: solo letras, números y `_`, máx. 16)
+- `/cw debug addbots [n] [nivel]`
+- `/cw debug removebot [nombre]`
+- `/cw debug setlevel [nombre|todos] [nivel]`
+El resto de `/cw debug` sigue siendo solo para administradores. Para dar el permiso con LuckPerms:
+`/lp user [jugador] permission set colorwar.streamer true`.

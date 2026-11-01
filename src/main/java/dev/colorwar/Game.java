@@ -363,11 +363,15 @@ public class Game {
 
         renderTask = Bukkit.getScheduler().runTaskTimer(plugin, this::flush, 1L, 1L);
         clockTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tickSecond, 20L, 20L);
-        if (hasBotPlayers()) {
-            long delay = Math.max(1, plugin.getConfig().getInt("bots.delay-ticks",
-                    plugin.getConfig().getInt("debug.bot-delay-ticks", 3)));
-            botTask = Bukkit.getScheduler().runTaskTimer(plugin, this::botTick, 20L, delay);
-        }
+        if (hasBotPlayers()) ensureBotTask();
+    }
+
+    /** Arranca el movimiento de los bots si aún no está en marcha (también para bots añadidos con la partida empezada). */
+    private void ensureBotTask() {
+        if (botTask != null || state != State.RUNNING) return;
+        long delay = Math.max(1, plugin.getConfig().getInt("bots.delay-ticks",
+                plugin.getConfig().getInt("debug.bot-delay-ticks", 3)));
+        botTask = Bukkit.getScheduler().runTaskTimer(plugin, this::botTick, 20L, delay);
     }
 
     private List<int[]> chooseStarts(int n) {
@@ -895,6 +899,11 @@ public class Game {
     /** Añade un bot con la partida en curso. teamNum: equipo 1..N (0 = automático, solo en modo equipos). */
     public String debugAddBot(String name, int teamNum, int level) {
         if (!debug) return "Esto solo funciona en una partida debug.";
+        return addBotMid(name, teamNum, level);
+    }
+
+    /** Añade un bot con la partida en curso (debug o streamer). teamNum: 0 = automático. */
+    private String addBotMid(String name, int teamNum, int level) {
         if (state != State.RUNNING) return "La partida no está en curso.";
         if (name == null || name.isBlank()) name = nextBotName();
         for (GamePlayer o : players.values()) {
@@ -945,6 +954,8 @@ public class Game {
         initBot(b);
         spawnBotEntity(b);
         broadcast("<white><n> <gray>(bot " + levelName(b.level) + ") se unió a la partida.", Msg.p("n", name));
+        hasBots = true;
+        ensureBotTask();
         return null;
     }
 
@@ -961,6 +972,62 @@ public class Game {
             n++;
         }
         return n == 0 ? "No hay ningún bot llamado " + target + "." : null;
+    }
+
+    // -------------------------------------------- bots de espectadores (streamers)
+
+    private static String cleanBotName(String raw) {
+        String base = raw == null ? "" : raw.replaceAll("[^A-Za-z0-9_]", "_");
+        if (base.length() > 16) base = base.substring(0, 16);
+        return base.replace("_", "").isEmpty() ? "Fan" : base;
+    }
+
+    private String uniqueBotName(String raw) {
+        String base = raw == null || raw.isBlank() ? nextBotName() : cleanBotName(raw);
+        String nm = base;
+        int i = 2;
+        while (nameTaken(nm)) {
+            String suf = "_" + i++;
+            nm = (base.length() + suf.length() > 16 ? base.substring(0, 16 - suf.length()) : base) + suf;
+        }
+        return nm;
+    }
+
+    /**
+     * Añade un bot a la partida del streamer, sea normal o debug. El nombre se limpia (solo letras, números y _,
+     * máximo 16) y se evita repetirlo. team: número de equipo, o ally / enemy / auto (solo en modo equipos).
+     */
+    public String streamerAddBot(Player who, String rawName, int level, String team) {
+        int lv = Math.max(1, Math.min(3, level));
+        String name = uniqueBotName(rawName);
+        if (state == State.WAITING || state == State.COUNTDOWN) {
+            if (players.size() >= maxPlayers()) return "La arena está llena.";
+            addPreBot(name, lv);
+            hasBots = true;
+            return null;
+        }
+        if (state != State.RUNNING) return "La partida no está en curso.";
+        int teamNum = 0;
+        String t = team == null ? "auto" : team.toLowerCase(Locale.ROOT);
+        if (arena.mode == Arena.PlayMode.TEAM) {
+            GamePlayer me = who == null ? null : players.get(who.getUniqueId());
+            if (t.matches("\\d+")) {
+                teamNum = Integer.parseInt(t);
+            } else if (me != null && me.side >= 0 && (t.equals("ally") || t.equals("aliado"))) {
+                teamNum = me.side + 1;
+            } else if (me != null && me.side >= 0 && (t.equals("enemy") || t.equals("enemigo") || t.equals("rival"))) {
+                int[] members = new int[sideCount];
+                for (GamePlayer o : players.values()) {
+                    if (o.side >= 0 && !o.left && !o.eliminated) members[o.side]++;
+                }
+                int best = -1;
+                for (int s = 0; s < sideCount; s++) {
+                    if (s != me.side && (best < 0 || members[s] < members[best])) best = s;
+                }
+                if (best >= 0) teamNum = best + 1;
+            }
+        }
+        return addBotMid(name, teamNum, lv);
     }
 
     public String debugRemoveBot(String name) {

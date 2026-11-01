@@ -12,5 +12,10 @@ commands:
 permissions:
   # Los comandos de jugador (/cw, join, leave, list, top, stats, menús) no necesitan permiso.
   colorwar.admin:
-    description: Administrar arenas
+    description: Administrar arenas y todo el plugin
     default: op
+    children:
+      colorwar.streamer: true
+  colorwar.streamer:
+    description: Streamers - gestionar bots en su partida (/cw debug addbot|addbots|removebot|setlevel), normal o debug
+    default: false

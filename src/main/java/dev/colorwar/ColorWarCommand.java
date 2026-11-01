@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
 
 public class ColorWarCommand implements CommandExecutor, TabCompleter {
     private static final Pattern BOT_NAME = Pattern.compile("[A-Za-z0-9_]{1,16}");
+    private static final List<String> STREAMER_SUBS = List.of("addbot", "addbots", "removebot", "setlevel");
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_-]{1,16}");
     private static final List<String> PLAYER_SUBS = List.of("menu", "join", "leave", "list", "top", "stats", "perm");
     private static final List<String> ADMIN_SUBS = List.of("admin", "placeholders", "debug", "create", "delete", "wand", "pos1", "pos2", "sel", "resize", "addspawn",
@@ -36,7 +37,10 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         String sub = a[0].toLowerCase(Locale.ROOT);
-        if (ADMIN_SUBS.contains(sub) && !s.hasPermission("colorwar.admin")) {
+        // Los streamers (colorwar.streamer) pueden usar solo los comandos de bots de /cw debug
+        boolean streamerCmd = sub.equals("debug") && s.hasPermission("colorwar.streamer")
+                && (a.length == 1 || a[1].equalsIgnoreCase("help") || STREAMER_SUBS.contains(a[1].toLowerCase(Locale.ROOT)));
+        if (ADMIN_SUBS.contains(sub) && !s.hasPermission("colorwar.admin") && !streamerCmd) {
             Msg.send(s, "<red>No tienes permiso.");
             return true;
         }
@@ -123,6 +127,22 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                 if (p == null) return true;
                 Game cur = plugin.games().gameOf(p.getUniqueId());
                 String arg = a.length > 1 ? a[1].toLowerCase(Locale.ROOT) : "";
+                if (STREAMER_SUBS.contains(arg)) {
+                    // Comandos de bots: funcionan en cualquier partida (normal o debug)
+                    if (!s.hasPermission("colorwar.streamer")) {
+                        Msg.send(p, "<red>No tienes permiso.");
+                    } else if (cur == null) {
+                        Msg.send(p, "<red>No estás en una partida.");
+                    } else {
+                        streamerBotCommand(p, cur, arg, a);
+                    }
+                    return true;
+                }
+                if (!s.hasPermission("colorwar.admin")) {
+                    Msg.send(p, "<yellow>Comandos de streamer: <white>/cw debug addbot [nombre] [nivel] [equipo|ally|enemy|auto]"
+                            + " | addbots [n] [nivel] | removebot [nombre] | setlevel [nombre|todos] [nivel]");
+                    return true;
+                }
                 if (cur != null && cur.isDebug()) {
                     switch (arg) {
                         case "win" -> {
@@ -493,6 +513,64 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
 
     // ---------------------------------------------------------------- utils
 
+    /** /cw debug addbot|addbots|removebot|setlevel para streamers: sirven en partidas normales y de debug. */
+    private void streamerBotCommand(Player p, Game cur, String arg, String[] a) {
+        int defLevel = plugin.getConfig().getInt("debug.default-level", 2);
+        switch (arg) {
+            case "addbot" -> {
+                // addbot [nombre] [nivel] [equipo|ally|enemy|auto]
+                Integer lv = a.length > 3 ? parseLevel(a[3]) : Integer.valueOf(defLevel);
+                if (lv == null) {
+                    Msg.send(p, "<red>Nivel no válido. Usa 1, 2 o 3 (fácil, normal, difícil).");
+                    return;
+                }
+                String err = cur.streamerAddBot(p, a.length > 2 ? a[2] : null, lv, a.length > 4 ? a[4] : "auto");
+                if (err != null) Msg.send(p, "<red>" + err);
+            }
+            case "addbots" -> {
+                int n = 1;
+                if (a.length > 2) {
+                    try {
+                        n = Math.max(1, Math.min(12, Integer.parseInt(a[2])));
+                    } catch (NumberFormatException ex) {
+                        Msg.send(p, "<red>Cantidad no válida.");
+                        return;
+                    }
+                }
+                Integer lv = a.length > 3 ? parseLevel(a[3]) : Integer.valueOf(defLevel);
+                if (lv == null) {
+                    Msg.send(p, "<red>Nivel no válido. Usa 1, 2 o 3 (fácil, normal, difícil).");
+                    return;
+                }
+                for (int i = 0; i < n; i++) {
+                    String err = cur.streamerAddBot(p, null, lv, "auto");
+                    if (err != null) {
+                        Msg.send(p, "<red>" + err);
+                        break;
+                    }
+                }
+            }
+            case "removebot" -> {
+                if (a.length < 3) {
+                    Msg.send(p, "<red>Uso: /cw debug removebot [nombre]");
+                    return;
+                }
+                String err = cur.debugRemoveBot(a[2]);
+                if (err != null) Msg.send(p, "<red>" + err);
+            }
+            case "setlevel" -> {
+                Integer lv = a.length > 3 ? parseLevel(a[3]) : null;
+                if (lv == null) {
+                    Msg.send(p, "<red>Uso: /cw debug setlevel [nombre|todos] [1-3]");
+                    return;
+                }
+                String err = cur.debugSetLevel(a[2], lv);
+                Msg.send(p, err != null ? "<red>" + err : "<green>Nivel cambiado a " + Game.levelName(lv) + " " + Game.stars(lv));
+            }
+            default -> { }
+        }
+    }
+
     private void debugHelp(Player p) {
         Msg.send(p, "<yellow>Debug: <white>/cw debug [arena] [bots o nombres] [nivel]</white> <gray>ej: /cw debug mapa1 3 2  o  /cw debug mapa1 Pepe:1,Luis:3");
         Msg.send(p, "<gray>Bots: <white>/cw debug addbot [nombre] [nivel] [equipo] | addbots [n] [nivel] | setlevel [nombre|todos] [nivel] | removebot [nombre]");
@@ -553,9 +631,12 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
         if (a.length == 1) {
             out.addAll(PLAYER_SUBS);
             if (s.hasPermission("colorwar.admin")) out.addAll(ADMIN_SUBS);
+            else if (s.hasPermission("colorwar.streamer")) out.add("debug");
         } else if (a.length == 2) {
             String sub = a[0].toLowerCase(Locale.ROOT);
-            if (sub.equals("debug")) {
+            if (sub.equals("debug") && !s.hasPermission("colorwar.admin")) {
+                out.addAll(STREAMER_SUBS);
+            } else if (sub.equals("debug")) {
                 out.addAll(List.of("win", "fill", "die", "time", "info", "stop", "addbot", "addbots", "removebot", "setlevel", "watch"));
                 for (Arena ar : plugin.arenas().all()) out.add(ar.name);
             } else if (sub.equals("top")) {
