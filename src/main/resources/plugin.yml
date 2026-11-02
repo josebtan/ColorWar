@@ -17,5 +17,5 @@ permissions:
     children:
       colorwar.streamer: true
   colorwar.streamer:
-    description: Streamers - gestionar bots en su partida (/cw debug addbot|addbots|removebot|setlevel), normal o debug
+    description: Streamers - gestionar bots en su partida (/cw debug addbot|addbots|removebot|setlevel|shrink), normal o debug
     default: false

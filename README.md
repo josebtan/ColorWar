@@ -121,5 +121,6 @@ los comandos de bots de `/cw debug`, pensados para ejecutarse con ChatPointsTTV 
 - `/cw debug addbots [n] [nivel]`
 - `/cw debug removebot [nombre]`
 - `/cw debug setlevel [nombre|todos] [nivel]`
+- `/cw debug shrink [%]`: resta ese porcentaje del campo al color del jugador (por defecto 5), empezando por el borde de su zona
 El resto de `/cw debug` sigue siendo solo para administradores. Para dar el permiso con LuckPerms:
 `/lp user [jugador] permission set colorwar.streamer true`.

@@ -1030,6 +1030,50 @@ public class Game {
         return addBotMid(name, teamNum, lv);
     }
 
+    /**
+     * Resta territorio al color del jugador (pct = % del campo entero). Se pierde primero el borde de su zona,
+     * así la forma se mantiene compacta, y nunca se queda con menos de 9 celdas.
+     */
+    public String streamerShrink(Player who, double pct) {
+        GamePlayer gp = who == null ? null : players.get(who.getUniqueId());
+        if (state != State.RUNNING || gp == null || gp.bot || gp.spectator || gp.side < 0) {
+            return "No estás jugando una partida en curso.";
+        }
+        int id = gp.side + 1;
+        int total = w * d;
+        int target = Math.max(1, (int) Math.round(total * Math.max(0.5, Math.min(30.0, pct)) / 100.0));
+        int have = 0;
+        for (int[] col : owner) for (int v : col) if (v == id) have++;
+        target = Math.min(target, Math.max(0, have - 9));
+        if (target <= 0) return "Ya tienes muy poco territorio que perder.";
+        int removed = 0;
+        while (removed < target) {
+            List<int[]> border = new ArrayList<>();
+            for (int gx = 0; gx < w; gx++) {
+                for (int gz = 0; gz < d; gz++) {
+                    if (owner[gx][gz] != id) continue;
+                    boolean edge = false;
+                    for (int k = 0; k < 4 && !edge; k++) {
+                        int nx = gx + DX[k], nz = gz + DZ[k];
+                        edge = nx < 0 || nz < 0 || nx >= w || nz >= d || owner[nx][nz] != id;
+                    }
+                    if (edge) border.add(new int[]{gx, gz});
+                }
+            }
+            if (border.isEmpty()) break;
+            Collections.shuffle(border, rnd);
+            for (int[] c : border) {
+                if (removed >= target) break;
+                owner[c[0]][c[1]] = 0;
+                dirty.add(c[0] * d + c[1]);
+                removed++;
+            }
+        }
+        who.playSound(who.getLocation(), Sound.BLOCK_GLASS_BREAK, 1f, 0.7f);
+        who.sendActionBar(Msg.parse("<red>-" + pct(removed, total) + " <gray>de territorio"));
+        return null;
+    }
+
     public String debugRemoveBot(String name) {
         for (GamePlayer o : new ArrayList<>(players.values())) {
             if (o.bot && o.name.equalsIgnoreCase(name)) {

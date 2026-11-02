@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 
 public class ColorWarCommand implements CommandExecutor, TabCompleter {
     private static final Pattern BOT_NAME = Pattern.compile("[A-Za-z0-9_]{1,16}");
-    private static final List<String> STREAMER_SUBS = List.of("addbot", "addbots", "removebot", "setlevel");
+    private static final List<String> STREAMER_SUBS = List.of("addbot", "addbots", "removebot", "setlevel", "shrink");
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_-]{1,16}");
     private static final List<String> PLAYER_SUBS = List.of("menu", "join", "leave", "list", "top", "stats", "perm");
     private static final List<String> ADMIN_SUBS = List.of("admin", "placeholders", "debug", "create", "delete", "wand", "pos1", "pos2", "sel", "resize", "addspawn",
@@ -140,7 +140,7 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                 }
                 if (!s.hasPermission("colorwar.admin")) {
                     Msg.send(p, "<yellow>Comandos de streamer: <white>/cw debug addbot [nombre] [nivel] [equipo|ally|enemy|auto]"
-                            + " | addbots [n] [nivel] | removebot [nombre] | setlevel [nombre|todos] [nivel]");
+                            + " | addbots [n] [nivel] | removebot [nombre] | setlevel [nombre|todos] [nivel] | shrink [%]");
                     return true;
                 }
                 if (cur != null && cur.isDebug()) {
@@ -566,6 +566,20 @@ public class ColorWarCommand implements CommandExecutor, TabCompleter {
                 }
                 String err = cur.debugSetLevel(a[2], lv);
                 Msg.send(p, err != null ? "<red>" + err : "<green>Nivel cambiado a " + Game.levelName(lv) + " " + Game.stars(lv));
+            }
+            case "shrink" -> {
+                // shrink [porcentaje]: resta ese % del campo al color del jugador (por defecto 5)
+                double pct = 5;
+                if (a.length > 2) {
+                    try {
+                        pct = Double.parseDouble(a[2]);
+                    } catch (NumberFormatException ex) {
+                        Msg.send(p, "<red>Porcentaje no válido.");
+                        return;
+                    }
+                }
+                String err = cur.streamerShrink(p, pct);
+                if (err != null) Msg.send(p, "<red>" + err);
             }
             default -> { }
         }
